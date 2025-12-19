@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getChat } from '../src/services/store.js';
 import { getMessagesForDate } from '../src/services/parser.js';
-import { chunkMessages, formatChunkForAI, getChunkStats } from '../src/services/chunker.js';
+import { chunkMessages, formatChunkForAI } from '../src/services/chunker.js';
 import { generateSummary, mergeSummaries } from '../src/services/groq.js';
 import type { SummarizeRequest, SummarizeResponse, ErrorResponse, SummaryLevel, PrivacyMode } from '../src/types/index.js';
 
@@ -89,7 +89,6 @@ export default async function handler(
 
     // Chunk messages if necessary
     const chunks = chunkMessages(messages);
-    const chunkStats = getChunkStats(chunks);
 
     let finalSummary: string;
     let totalTokens = 0;
