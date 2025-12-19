@@ -1,17 +1,13 @@
 /**
  * WhatsApp Group Summarizer - Frontend Application
- * With smart rate limit handling and token tracking
  */
 
 // ==============================================
 // Constants
 // ==============================================
-// Using llama-4-scout with 30K TPM for large conversations
-const GROQ_TPM_LIMIT = 30000; // Tokens per minute limit (llama-4-scout)
-const TOKENS_PER_MESSAGE = 50; // Estimated tokens per message
-const SAMPLE_SIZE = 300; // Messages for quick sampling (can be larger now)
-const CHUNK_SIZE = 400; // Messages per chunk (30K TPM allows bigger chunks)
-const DIRECT_PROCESS_LIMIT = 500; // Process directly without modal if under this
+const SERVER_CHUNK_SIZE = 250; // Server processes max this many per request
+const QUICK_SAMPLE_SIZE = 200; // Messages for quick sampling
+const FULL_MODE_THRESHOLD = 500; // Show mode modal above this
 
 // ==============================================
 // State
@@ -22,61 +18,50 @@ const state = {
   selectedDate: null,
   selectedDateInfo: null,
   level: 3,
-  privacy: 'smart',
-  // Token tracking
-  tokensUsed: 0,
-  tokenResetTime: 0, // Timestamp when tokens reset
-  processingMode: null, // 'quick' or 'full'
-  processingProgress: { current: 0, total: 0, summaries: [] }
+  privacy: 'smart'
 };
 
 // ==============================================
 // DOM Elements
 // ==============================================
+const $ = id => document.getElementById(id);
+
 const elements = {
-  stepUpload: document.getElementById('step-upload'),
-  stepDates: document.getElementById('step-dates'),
-  stepOptions: document.getElementById('step-options'),
-  stepResult: document.getElementById('step-result'),
-  
-  uploadArea: document.getElementById('upload-area'),
-  fileInput: document.getElementById('file-input'),
-  
-  datesInfo: document.getElementById('dates-info'),
-  recentDates: document.getElementById('recent-dates'),
-  allDates: document.getElementById('all-dates'),
-  loadMoreDates: document.getElementById('load-more-dates'),
-  btnBackUpload: document.getElementById('btn-back-upload'),
-  
-  selectedDateInfo: document.getElementById('selected-date-info'),
-  levelOptions: document.getElementById('level-options'),
-  privacyOptions: document.getElementById('privacy-options'),
-  btnBackDates: document.getElementById('btn-back-dates'),
-  btnSummarize: document.getElementById('btn-summarize'),
-  
-  resultDate: document.getElementById('result-date'),
-  summaryText: document.getElementById('summary-text'),
-  summaryStats: document.getElementById('summary-stats'),
-  btnCopy: document.getElementById('btn-copy'),
-  btnShare: document.getElementById('btn-share'),
-  btnNewDate: document.getElementById('btn-new-date'),
-  
-  loading: document.getElementById('loading'),
-  loadingText: document.getElementById('loading-text'),
-  toast: document.getElementById('toast'),
-  
-  // New elements for token tracking
-  tokenBar: document.getElementById('token-bar'),
-  modeModal: document.getElementById('mode-modal')
+  stepUpload: $('step-upload'),
+  stepDates: $('step-dates'),
+  stepOptions: $('step-options'),
+  stepResult: $('step-result'),
+  uploadArea: $('upload-area'),
+  fileInput: $('file-input'),
+  datesInfo: $('dates-info'),
+  recentDates: $('recent-dates'),
+  allDates: $('all-dates'),
+  loadMoreDates: $('load-more-dates'),
+  btnBackUpload: $('btn-back-upload'),
+  selectedDateInfo: $('selected-date-info'),
+  levelOptions: $('level-options'),
+  privacyOptions: $('privacy-options'),
+  btnBackDates: $('btn-back-dates'),
+  btnSummarize: $('btn-summarize'),
+  resultDate: $('result-date'),
+  summaryText: $('summary-text'),
+  summaryStats: $('summary-stats'),
+  btnCopy: $('btn-copy'),
+  btnShare: $('btn-share'),
+  btnNewDate: $('btn-new-date'),
+  loading: $('loading'),
+  loadingText: $('loading-text'),
+  toast: $('toast'),
+  tokenBar: $('token-bar')
 };
 
 // ==============================================
 // Utilities
 // ==============================================
 
-function showStep(stepName) {
-  ['step-upload', 'step-dates', 'step-options', 'step-result'].forEach(s => {
-    document.getElementById(s)?.classList.toggle('active', s === `step-${stepName}`);
+function showStep(name) {
+  ['upload', 'dates', 'options', 'result'].forEach(s => {
+    $(`step-${s}`)?.classList.toggle('active', s === name);
   });
 }
 
@@ -98,8 +83,7 @@ function showToast(message, type = 'info') {
 
 function formatDate(dateStr) {
   const [year, month, day] = dateStr.split('-');
-  const date = new Date(year, month - 1, day);
-  return date.toLocaleDateString('pt-BR', { 
+  return new Date(year, month - 1, day).toLocaleDateString('pt-BR', { 
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' 
   });
 }
@@ -109,163 +93,9 @@ function formatDateShort(dateStr) {
   return `${day}/${month}/${year}`;
 }
 
-function estimateTokens(messages) {
-  return messages.reduce((sum, msg) => sum + Math.ceil(msg.content.length / 4) + 10, 0);
-}
-
 function formatTime(seconds) {
-  if (seconds < 60) return `${seconds} segundos`;
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return secs > 0 ? `${mins}min ${secs}s` : `${mins} minuto${mins > 1 ? 's' : ''}`;
-}
-
-// ==============================================
-// Token Tracking
-// ==============================================
-
-function loadTokenState() {
-  const saved = localStorage.getItem('groqTokenState');
-  if (saved) {
-    const data = JSON.parse(saved);
-    // Check if reset time has passed
-    if (Date.now() > data.resetTime) {
-      state.tokensUsed = 0;
-      state.tokenResetTime = 0;
-    } else {
-      state.tokensUsed = data.tokensUsed;
-      state.tokenResetTime = data.resetTime;
-    }
-  }
-}
-
-function saveTokenState() {
-  localStorage.setItem('groqTokenState', JSON.stringify({
-    tokensUsed: state.tokensUsed,
-    resetTime: state.tokenResetTime
-  }));
-}
-
-function updateTokensUsed(tokens) {
-  state.tokensUsed += tokens;
-  // Reset time is 60 seconds from first use in this minute
-  if (state.tokenResetTime < Date.now()) {
-    state.tokenResetTime = Date.now() + 60000;
-  }
-  saveTokenState();
-  updateTokenBar();
-}
-
-function getAvailableTokens() {
-  if (Date.now() > state.tokenResetTime) {
-    state.tokensUsed = 0;
-    state.tokenResetTime = 0;
-    saveTokenState();
-  }
-  return GROQ_TPM_LIMIT - state.tokensUsed;
-}
-
-function getSecondsUntilReset() {
-  if (state.tokenResetTime <= Date.now()) return 0;
-  return Math.ceil((state.tokenResetTime - Date.now()) / 1000);
-}
-
-function updateTokenBar() {
-  const bar = elements.tokenBar;
-  if (!bar) return;
-  
-  const available = getAvailableTokens();
-  const percentage = (available / GROQ_TPM_LIMIT) * 100;
-  const secondsLeft = getSecondsUntilReset();
-  
-  const fill = bar.querySelector('.token-fill');
-  const text = bar.querySelector('.token-text');
-  
-  if (fill) {
-    fill.style.width = `${percentage}%`;
-    fill.className = `token-fill ${percentage > 50 ? 'good' : percentage > 20 ? 'warning' : 'critical'}`;
-  }
-  
-  if (text) {
-    if (available >= GROQ_TPM_LIMIT) {
-      text.textContent = `✓ Pronto para usar`;
-    } else if (secondsLeft > 0) {
-      text.textContent = `${available.toLocaleString()} tokens disponíveis • Recarrega em ${secondsLeft}s`;
-    } else {
-      text.textContent = `${available.toLocaleString()} tokens disponíveis`;
-    }
-  }
-}
-
-// Update token bar every second
-setInterval(updateTokenBar, 1000);
-
-// ==============================================
-// Mode Selection Modal
-// ==============================================
-
-function showModeModal(messageCount) {
-  const estimatedTokens = messageCount * TOKENS_PER_MESSAGE;
-  const chunksNeeded = Math.ceil(messageCount / CHUNK_SIZE);
-  const fullTimeSeconds = chunksNeeded * 60; // 1 minute per chunk
-  
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.id = 'mode-modal';
-  
-  modal.innerHTML = `
-    <div class="modal-content">
-      <h2>📊 Dia com muitas mensagens</h2>
-      <p class="modal-subtitle">${messageCount.toLocaleString()} mensagens (~${estimatedTokens.toLocaleString()} tokens)</p>
-      
-      <div class="mode-options">
-        <div class="mode-card" data-mode="quick">
-          <div class="mode-icon">⚡</div>
-          <h3>Resumo Rápido</h3>
-          <p>Amostragem de ~${SAMPLE_SIZE} mensagens</p>
-          <ul>
-            <li>✓ Pronto em segundos</li>
-            <li>✓ Captura os principais tópicos</li>
-            <li>⚠ Pode perder alguns detalhes</li>
-          </ul>
-          <div class="mode-time">~5 segundos</div>
-        </div>
-        
-        <div class="mode-card" data-mode="full">
-          <div class="mode-icon">📖</div>
-          <h3>Resumo Completo</h3>
-          <p>Processa todas as ${messageCount.toLocaleString()} mensagens</p>
-          <ul>
-            <li>✓ Cobre toda a conversa</li>
-            <li>✓ Máxima precisão</li>
-            <li>⏱ Requer várias etapas</li>
-          </ul>
-          <div class="mode-time">~${formatTime(fullTimeSeconds)}</div>
-        </div>
-      </div>
-      
-      <button class="btn-link modal-cancel">Cancelar</button>
-    </div>
-  `;
-  
-  document.body.appendChild(modal);
-  
-  // Event listeners
-  modal.querySelectorAll('.mode-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const mode = card.dataset.mode;
-      modal.remove();
-      startSummarization(mode);
-    });
-  });
-  
-  modal.querySelector('.modal-cancel').addEventListener('click', () => {
-    modal.remove();
-  });
-  
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.remove();
-  });
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}min ${seconds % 60}s`;
 }
 
 // ==============================================
@@ -275,271 +105,221 @@ function showModeModal(messageCount) {
 async function uploadFile(file) {
   const formData = new FormData();
   formData.append('file', file);
-  
-  const response = await fetch('/api/upload', { method: 'POST', body: formData });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Falha ao processar arquivo');
-  }
-  return response.json();
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error((await res.json()).error || 'Erro no upload');
+  return res.json();
 }
 
-async function summarizeMessages(messages, isPartial = false) {
-  const response = await fetch('/api/summarize', {
+async function summarizeChunk(messages, isPartial = false) {
+  const res = await fetch('/api/summarize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages,
-      level: state.level,
-      privacy: state.privacy,
-      isPartial
-    })
+    body: JSON.stringify({ messages, level: state.level, privacy: state.privacy, isPartial })
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Falha ao gerar resumo');
-  }
-  return response.json();
+  if (!res.ok) throw new Error((await res.json()).error || 'Erro ao resumir');
+  return res.json();
 }
 
 async function mergeSummaries(summaries) {
-  const response = await fetch('/api/merge', {
+  const res = await fetch('/api/merge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      summaries,
-      level: state.level,
-      privacy: state.privacy
-    })
+    body: JSON.stringify({ summaries, level: state.level, privacy: state.privacy })
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Falha ao combinar resumos');
-  }
-  return response.json();
+  if (!res.ok) throw new Error((await res.json()).error || 'Erro ao combinar');
+  return res.json();
 }
 
 // ==============================================
-// Summarization Logic
+// Mode Selection Modal
+// ==============================================
+
+function showModeModal(messageCount) {
+  const chunks = Math.ceil(messageCount / SERVER_CHUNK_SIZE);
+  const estimatedTime = chunks * 8; // ~8 seconds per chunk
+  
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>📊 ${messageCount.toLocaleString()} mensagens</h2>
+      <p class="modal-subtitle">Escolha como processar:</p>
+      
+      <div class="mode-options">
+        <div class="mode-card" data-mode="quick">
+          <div class="mode-icon">⚡</div>
+          <h3>Rápido</h3>
+          <p>Amostra de ~${QUICK_SAMPLE_SIZE} mensagens</p>
+          <div class="mode-time">~5 segundos</div>
+        </div>
+        
+        <div class="mode-card" data-mode="full">
+          <div class="mode-icon">📖</div>
+          <h3>Completo</h3>
+          <p>Todas as ${messageCount} mensagens em ${chunks} partes</p>
+          <div class="mode-time">~${formatTime(estimatedTime)}</div>
+        </div>
+      </div>
+      
+      <button class="btn-link modal-cancel">Cancelar</button>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  modal.querySelectorAll('.mode-card').forEach(card => {
+    card.onclick = () => { modal.remove(); startSummarization(card.dataset.mode); };
+  });
+  modal.querySelector('.modal-cancel').onclick = () => modal.remove();
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+}
+
+// ==============================================
+// Summarization
 // ==============================================
 
 async function startSummarization(mode) {
-  state.processingMode = mode;
   const messages = state.messagesByDate[state.selectedDate];
   
   if (mode === 'quick') {
-    await processQuickMode(messages);
+    await processQuick(messages);
   } else {
-    await processFullMode(messages);
+    await processFull(messages);
   }
 }
 
-async function processQuickMode(messages) {
+async function processQuick(messages) {
   try {
     showLoading('Gerando resumo...');
     
-    // With 30K TPM, we can process up to ~500 messages directly
-    // Only sample if there are way too many messages
-    let messagesToProcess = messages;
-    let sampled = false;
-    
-    if (messages.length > 600) {
-      // Sample for very large conversations
-      const step = Math.max(1, Math.floor(messages.length / SAMPLE_SIZE));
-      messagesToProcess = messages.filter((_, i) => i % step === 0).slice(0, SAMPLE_SIZE);
-      sampled = true;
+    // Sample if too many messages
+    let toProcess = messages;
+    if (messages.length > QUICK_SAMPLE_SIZE) {
+      const step = Math.floor(messages.length / QUICK_SAMPLE_SIZE);
+      toProcess = messages.filter((_, i) => i % step === 0).slice(0, QUICK_SAMPLE_SIZE);
     }
     
-    const result = await summarizeMessages(messagesToProcess, false);
+    const result = await summarizeChunk(toProcess, false);
     
-    updateTokensUsed(result.stats.tokensUsed);
+    let summary = result.summary;
+    if (messages.length > QUICK_SAMPLE_SIZE) {
+      summary += `\n\n---\n_Resumo de ${toProcess.length} de ${messages.length} mensagens_`;
+    }
     
-    const note = sampled 
-      ? `\n\n---\n_📊 Resumo baseado em amostra de ${messagesToProcess.length} de ${messages.length} mensagens_`
-      : '';
-    
-    displayResult(result.summary + note, result.stats);
-    
-  } catch (error) {
+    displayResult(summary, { ...result.stats, totalMessages: messages.length });
+  } catch (err) {
     hideLoading();
-    showToast(error.message, 'error');
+    showToast(err.message, 'error');
   }
 }
 
-async function processFullMode(messages) {
+async function processFull(messages) {
   const chunks = [];
-  for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
-    chunks.push(messages.slice(i, i + CHUNK_SIZE));
+  for (let i = 0; i < messages.length; i += SERVER_CHUNK_SIZE) {
+    chunks.push(messages.slice(i, i + SERVER_CHUNK_SIZE));
   }
-  
-  state.processingProgress = { current: 0, total: chunks.length, summaries: [] };
   
   showProgressUI(chunks.length);
-  
-  for (let i = 0; i < chunks.length; i++) {
-    // Check if we need to wait for tokens
-    const available = getAvailableTokens();
-    const needed = estimateTokens(chunks[i]);
-    
-    if (available < needed) {
-      const waitTime = getSecondsUntilReset();
-      await waitWithCountdown(waitTime, `Aguardando limite de tokens... ${i + 1}/${chunks.length}`);
-    }
-    
-    try {
-      updateProgressUI(i + 1, chunks.length, 'Processando...');
-      
-      const result = await summarizeMessages(chunks[i], true);
-      state.processingProgress.summaries.push(result.summary);
-      updateTokensUsed(result.stats.tokensUsed);
-      
-      updateProgressUI(i + 1, chunks.length, 'Concluído');
-      
-    } catch (error) {
-      if (error.message.includes('rate') || error.message.includes('limit')) {
-        // Wait and retry
-        const waitTime = 60;
-        await waitWithCountdown(waitTime, `Limite atingido, aguardando... ${i + 1}/${chunks.length}`);
-        i--; // Retry this chunk
-        continue;
-      }
-      throw error;
-    }
-  }
-  
-  // Merge all summaries
-  updateProgressUI(chunks.length, chunks.length, 'Combinando resumos...');
-  
-  // Wait for tokens if needed
-  const available = getAvailableTokens();
-  if (available < 2000) {
-    const waitTime = getSecondsUntilReset();
-    await waitWithCountdown(waitTime, 'Aguardando para combinar...');
-  }
+  const summaries = [];
   
   try {
-    const mergeResult = await mergeSummaries(state.processingProgress.summaries);
-    updateTokensUsed(mergeResult.stats?.tokensUsed || 0);
+    for (let i = 0; i < chunks.length; i++) {
+      updateProgressUI(i, chunks.length, `Processando parte ${i + 1}...`);
+      
+      const result = await summarizeChunk(chunks[i], true);
+      summaries.push(result.summary);
+      
+      // Small delay between requests
+      if (i < chunks.length - 1) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
     
-    hideProgressUI();
-    displayResult(mergeResult.summary, {
+    // Merge all summaries
+    updateProgressUI(chunks.length, chunks.length, 'Combinando resumos...');
+    
+    let finalSummary;
+    if (summaries.length === 1) {
+      finalSummary = summaries[0];
+    } else {
+      const mergeResult = await mergeSummaries(summaries);
+      finalSummary = mergeResult.summary;
+    }
+    
+    hideLoading();
+    displayResult(finalSummary, {
       totalMessages: messages.length,
       participants: new Set(messages.map(m => m.sender)).size,
-      tokensUsed: state.processingProgress.summaries.length * 500,
-      chunks: chunks.length,
-      processingTime: 0
+      chunks: chunks.length
     });
     
-  } catch (error) {
-    hideProgressUI();
-    showToast(error.message, 'error');
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
   }
 }
 
-async function waitWithCountdown(seconds, message) {
-  return new Promise(resolve => {
-    const interval = setInterval(() => {
-      seconds--;
-      if (seconds <= 0) {
-        clearInterval(interval);
-        resolve();
-      } else {
-        updateProgressUI(
-          state.processingProgress.current, 
-          state.processingProgress.total,
-          `${message} (${seconds}s)`
-        );
-      }
-    }, 1000);
-  });
-}
-
-function showProgressUI(totalChunks) {
+function showProgressUI(total) {
   elements.loading.hidden = false;
   elements.loadingText.innerHTML = `
     <div class="progress-container">
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: 0%"></div>
-      </div>
-      <div class="progress-text">Iniciando... 0/${totalChunks}</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+      <div class="progress-text">Iniciando... 0/${total}</div>
     </div>
   `;
 }
 
-function updateProgressUI(current, total, status) {
-  state.processingProgress.current = current;
-  const percentage = (current / total) * 100;
-  
+function updateProgressUI(current, total, text) {
+  const pct = (current / total) * 100;
   const fill = document.querySelector('.progress-fill');
-  const text = document.querySelector('.progress-text');
-  
-  if (fill) fill.style.width = `${percentage}%`;
-  if (text) text.textContent = `${status} ${current}/${total}`;
-}
-
-function hideProgressUI() {
-  elements.loading.hidden = true;
+  const txt = document.querySelector('.progress-text');
+  if (fill) fill.style.width = `${pct}%`;
+  if (txt) txt.textContent = text;
 }
 
 function displayResult(summary, stats) {
   hideLoading();
   
-  elements.summaryText.innerHTML = formatSummary(summary);
+  elements.summaryText.innerHTML = summary
+    .replace(/##\s*(.+)/g, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/^/, '<p>').replace(/$/, '</p>');
+  
   elements.summaryStats.innerHTML = `
-    <div class="stat-item">
-      <span class="stat-value">${stats.totalMessages}</span>
-      <span class="stat-label">mensagens</span>
-    </div>
-    <div class="stat-item">
-      <span class="stat-value">${stats.participants}</span>
-      <span class="stat-label">participantes</span>
-    </div>
-    <div class="stat-item">
-      <span class="stat-value">${stats.chunks}</span>
-      <span class="stat-label">partes</span>
-    </div>
+    <div class="stat-item"><span class="stat-value">${stats.totalMessages}</span><span class="stat-label">mensagens</span></div>
+    <div class="stat-item"><span class="stat-value">${stats.participants || '-'}</span><span class="stat-label">participantes</span></div>
+    <div class="stat-item"><span class="stat-value">${stats.chunks || 1}</span><span class="stat-label">partes</span></div>
   `;
   
   elements.resultDate.textContent = formatDate(state.selectedDate);
   elements.btnShare.hidden = !navigator.share;
-  
   showStep('result');
 }
 
-function formatSummary(text) {
-  return text
-    .replace(/##\s*(.+)/g, '<h2>$1</h2>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/^/, '<p>')
-    .replace(/$/, '</p>');
-}
-
 // ==============================================
-// Date Cards
+// Date Selection
 // ==============================================
 
-function createDateCard(dateInfo) {
+function createDateCard(info) {
   const div = document.createElement('div');
   div.className = 'date-card';
-  div.dataset.date = dateInfo.date;
+  div.dataset.date = info.date;
   
-  const isLarge = dateInfo.messageCount > 200;
+  const isLarge = info.messageCount > FULL_MODE_THRESHOLD;
   
   div.innerHTML = `
     <div class="date-info">
-      <span class="date-value">${formatDate(dateInfo.date)}</span>
-      <span class="date-preview">${dateInfo.preview || ''}</span>
+      <span class="date-value">${formatDate(info.date)}</span>
+      <span class="date-preview">${info.preview || ''}</span>
     </div>
     <div class="date-stats">
-      <span class="message-count ${isLarge ? 'large' : ''}">${dateInfo.messageCount} mensagens</span>
-      <span class="participant-count">${dateInfo.participants} participantes</span>
+      <span class="message-count ${isLarge ? 'large' : ''}">${info.messageCount} msgs</span>
+      <span class="participant-count">${info.participants} pessoas</span>
     </div>
   `;
   
-  div.addEventListener('click', () => selectDate(dateInfo));
+  div.onclick = () => selectDate(info);
   return div;
 }
 
@@ -548,17 +328,15 @@ function renderDates(dates, container, clear = true) {
   dates.forEach(d => container.appendChild(createDateCard(d)));
 }
 
-function selectDate(dateInfo) {
-  state.selectedDate = dateInfo.date;
-  state.selectedDateInfo = dateInfo;
+function selectDate(info) {
+  state.selectedDate = info.date;
+  state.selectedDateInfo = info;
   
-  document.querySelectorAll('.date-card').forEach(card => {
-    card.classList.toggle('selected', card.dataset.date === dateInfo.date);
-  });
+  document.querySelectorAll('.date-card').forEach(c => 
+    c.classList.toggle('selected', c.dataset.date === info.date)
+  );
   
-  elements.selectedDateInfo.textContent = 
-    `${formatDate(dateInfo.date)} • ${dateInfo.messageCount} mensagens`;
-  
+  elements.selectedDateInfo.textContent = `${formatDate(info.date)} • ${info.messageCount} mensagens`;
   showStep('options');
 }
 
@@ -568,59 +346,42 @@ function selectDate(dateInfo) {
 
 async function handleFile(file) {
   if (!file) return;
-  
   if (!file.name.endsWith('.txt') && file.type !== 'text/plain') {
-    showToast('Por favor, selecione um arquivo .txt exportado do WhatsApp', 'error');
-    return;
-  }
-  
-  if (file.size > 10 * 1024 * 1024) {
-    showToast('Arquivo muito grande. Máximo 10MB.', 'error');
+    showToast('Selecione um arquivo .txt do WhatsApp', 'error');
     return;
   }
   
   try {
-    showLoading('Analisando arquivo...');
-    
+    showLoading('Analisando...');
     const result = await uploadFile(file);
     
     state.messagesByDate = result.messagesByDate;
     state.allDates = result.dates;
     
-    elements.datesInfo.textContent = 
-      `${result.totalMessages.toLocaleString()} mensagens em ${result.totalDays} dias`;
-    
+    elements.datesInfo.textContent = `${result.totalMessages.toLocaleString()} mensagens em ${result.totalDays} dias`;
     renderDates(result.dates.slice(0, 3), elements.recentDates);
     elements.loadMoreDates.hidden = result.totalDays <= 3;
     elements.allDates.hidden = true;
     
     hideLoading();
     showStep('dates');
-    
-  } catch (error) {
+  } catch (err) {
     hideLoading();
-    showToast(error.message, 'error');
+    showToast(err.message, 'error');
   }
 }
 
-// ==============================================
-// Summary Handler
-// ==============================================
-
 async function handleSummarize() {
   const messages = state.messagesByDate[state.selectedDate];
-  
-  if (!messages || messages.length === 0) {
-    showToast('Nenhuma mensagem encontrada para esta data', 'error');
+  if (!messages?.length) {
+    showToast('Nenhuma mensagem', 'error');
     return;
   }
   
-  // With 30K TPM, we can process much more directly
-  // Only show modal for very large conversations (1000+ messages)
-  if (messages.length > 1000) {
+  // Show modal for large conversations
+  if (messages.length > FULL_MODE_THRESHOLD) {
     showModeModal(messages.length);
   } else {
-    // Direct processing - works for most days now
     await startSummarization('quick');
   }
 }
@@ -630,20 +391,16 @@ async function handleSummarize() {
 // ==============================================
 
 elements.uploadArea?.addEventListener('click', () => elements.fileInput?.click());
-elements.fileInput?.addEventListener('change', (e) => handleFile(e.target.files[0]));
+elements.fileInput?.addEventListener('change', e => handleFile(e.target.files[0]));
 
-elements.uploadArea?.addEventListener('dragover', (e) => {
+elements.uploadArea?.addEventListener('dragover', e => {
   e.preventDefault();
   elements.uploadArea.classList.add('dragover');
 });
-
-elements.uploadArea?.addEventListener('dragleave', () => {
-  elements.uploadArea?.classList.remove('dragover');
-});
-
-elements.uploadArea?.addEventListener('drop', (e) => {
+elements.uploadArea?.addEventListener('dragleave', () => elements.uploadArea.classList.remove('dragover'));
+elements.uploadArea?.addEventListener('drop', e => {
   e.preventDefault();
-  elements.uploadArea?.classList.remove('dragover');
+  elements.uploadArea.classList.remove('dragover');
   handleFile(e.dataTransfer.files[0]);
 });
 
@@ -663,21 +420,21 @@ elements.btnBackUpload?.addEventListener('click', () => {
 elements.btnBackDates?.addEventListener('click', () => showStep('dates'));
 elements.btnNewDate?.addEventListener('click', () => showStep('dates'));
 
-elements.levelOptions?.addEventListener('change', (e) => {
+elements.levelOptions?.addEventListener('change', e => {
   if (e.target.name === 'level') {
     state.level = parseInt(e.target.value);
-    document.querySelectorAll('#level-options .radio-card').forEach(card => {
-      card.classList.toggle('selected', card.querySelector('input').checked);
-    });
+    document.querySelectorAll('#level-options .radio-card').forEach(c => 
+      c.classList.toggle('selected', c.querySelector('input').checked)
+    );
   }
 });
 
-elements.privacyOptions?.addEventListener('change', (e) => {
+elements.privacyOptions?.addEventListener('change', e => {
   if (e.target.name === 'privacy') {
     state.privacy = e.target.value;
-    document.querySelectorAll('#privacy-options .radio-card').forEach(card => {
-      card.classList.toggle('selected', card.querySelector('input').checked);
-    });
+    document.querySelectorAll('#privacy-options .radio-card').forEach(c => 
+      c.classList.toggle('selected', c.querySelector('input').checked)
+    );
   }
 });
 
@@ -686,43 +443,31 @@ elements.btnSummarize?.addEventListener('click', handleSummarize);
 elements.btnCopy?.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(elements.summaryText.innerText);
-    showToast('Resumo copiado!', 'success');
-  } catch { showToast('Não foi possível copiar', 'error'); }
+    showToast('Copiado!', 'success');
+  } catch { showToast('Erro ao copiar', 'error'); }
 });
 
 elements.btnShare?.addEventListener('click', async () => {
   try {
-    await navigator.share({
-      title: `Resumo do grupo - ${formatDateShort(state.selectedDate)}`,
-      text: elements.summaryText.innerText
-    });
+    await navigator.share({ title: `Resumo - ${formatDateShort(state.selectedDate)}`, text: elements.summaryText.innerText });
   } catch {}
 });
 
 // ==============================================
-// PWA & Initialize
+// Initialize
 // ==============================================
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-    .then(() => console.log('Service Worker registered'))
-    .catch(err => console.error('SW registration failed:', err));
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 
-async function init() {
-  loadTokenState();
-  updateTokenBar();
-  
-  const sharedContent = sessionStorage.getItem('sharedFileContent');
-  const sharedFileName = sessionStorage.getItem('sharedFileName');
-  
-  if (sharedContent && sharedFileName) {
+(async function init() {
+  const content = sessionStorage.getItem('sharedFileContent');
+  const name = sessionStorage.getItem('sharedFileName');
+  if (content && name) {
     sessionStorage.removeItem('sharedFileContent');
     sessionStorage.removeItem('sharedFileName');
-    await handleFile(new File([sharedContent], sharedFileName, { type: 'text/plain' }));
+    await handleFile(new File([content], name, { type: 'text/plain' }));
   }
-  
-  console.log('WhatsApp Group Summarizer initialized');
-}
-
-init();
+  console.log('App initialized');
+})();

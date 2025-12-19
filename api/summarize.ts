@@ -19,30 +19,23 @@ interface SummarizeRequestBody {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Models with different TPM limits - choose based on message count
-const MODELS = {
-  small: 'llama-3.1-8b-instant',      // Fast, 6K TPM - for small conversations
-  medium: 'llama-3.3-70b-versatile',  // Better quality, 6K TPM
-  large: 'meta-llama/llama-4-scout-17b-16e-instruct', // 30K TPM - for large conversations
-};
+// Fast model to stay under Vercel's 10s timeout
+const MODEL = 'llama-3.1-8b-instant';
 
-function selectModel(messageCount: number): string {
-  if (messageCount > 500) return MODELS.large;  // 30K TPM allows big batches
-  if (messageCount > 100) return MODELS.medium; // Better quality for medium
-  return MODELS.small; // Fast for small conversations
-}
+// Max messages to process in one request (to stay under 10s timeout)
+const MAX_MESSAGES = 250;
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
-  1: { maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em 2-3 frases dos principais tópicos.' },
-  2: { maxTokens: 400, prompt: 'Faça um resumo CURTO com parágrafos breves por assunto.' },
-  3: { maxTokens: 600, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos importantes.' },
-  4: { maxTokens: 1000, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
+  1: { maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em 2-3 frases.' },
+  2: { maxTokens: 300, prompt: 'Faça um resumo CURTO com parágrafos breves.' },
+  3: { maxTokens: 500, prompt: 'Faça um resumo DETALHADO dos assuntos.' },
+  4: { maxTokens: 700, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
 };
 
 const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
-  'anonymous': 'NÃO mencione nomes de pessoas ou números. Use termos genéricos.',
+  'anonymous': 'NÃO mencione nomes. Use termos genéricos.',
   'with-names': 'Mencione os nomes das pessoas quando relevante.',
-  'smart': 'Mencione nomes APENAS para contribuições muito importantes.'
+  'smart': 'Mencione nomes APENAS para contribuições importantes.'
 };
 
 function formatMessages(messages: ParsedMessage[], includeNames: boolean): string {
@@ -79,25 +72,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const privacyMode: PrivacyMode = ['anonymous', 'with-names', 'smart'].includes(privacy) ? privacy : 'smart';
     const includeNames = privacyMode !== 'anonymous';
 
+    // Limit messages to avoid timeout
+    const messagesToProcess = messages.slice(0, MAX_MESSAGES);
+    const wasLimited = messages.length > MAX_MESSAGES;
+
     const config = LEVEL_CONFIGS[summaryLevel];
     const privacyNote = PRIVACY_INSTRUCTIONS[privacyMode];
-
-    const messagesText = formatMessages(messages, includeNames);
-    const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
+    const messagesText = formatMessages(messagesToProcess, includeNames);
+    const participants = new Set(messagesToProcess.map(m => m.sender).filter(s => s !== '__system__'));
 
     const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp em português brasileiro.
 ${config.prompt}
 ${privacyNote}
-${isPartial ? 'Este é apenas uma PARTE da conversa. Faça um resumo desta parte.' : ''}
-Organize por temas/assuntos quando apropriado. Use markdown para formatação.`;
+${isPartial ? 'Este é uma PARTE da conversa. Resuma esta parte.' : ''}
+Organize por temas. Use markdown.`;
 
-    const model = selectModel(messages.length);
-    
     const completion = await groq.chat.completions.create({
-      model: model,
+      model: MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Resuma esta conversa:\n\n${messagesText}` }
+        { role: 'user', content: `Resuma:\n\n${messagesText}` }
       ],
       max_tokens: config.maxTokens,
       temperature: 0.3,
@@ -106,11 +100,13 @@ Organize por temas/assuntos quando apropriado. Use markdown para formatação.`;
     res.status(200).json({
       summary: completion.choices[0]?.message?.content || '',
       stats: {
-        totalMessages: messages.length,
+        totalMessages: messagesToProcess.length,
+        originalCount: messages.length,
         participants: participants.size,
         tokensUsed: completion.usage?.total_tokens || 0,
-        chunks: 1,
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
+        wasLimited,
+        maxMessages: MAX_MESSAGES
       }
     });
 
@@ -118,7 +114,7 @@ Organize por temas/assuntos quando apropriado. Use markdown para formatação.`;
     console.error('Summarize error:', err);
     
     if (err instanceof Error && (err.message.includes('rate') || err.message.includes('429') || err.message.includes('413'))) {
-      res.status(429).json({ error: 'Limite de tokens excedido. Aguarde um momento e tente novamente.' });
+      res.status(429).json({ error: 'Limite de tokens. Aguarde um momento.' });
       return;
     }
 
