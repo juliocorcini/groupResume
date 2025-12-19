@@ -5,14 +5,14 @@
 // ==============================================
 // Constants
 // ==============================================
-// Limits are due to HTTP payload size and Vercel timeout, not just TPM
+// Chunks must complete in <10s (Vercel timeout)
 const MODEL_LIMITS = {
-  fast: 80,       // llama-3.1-8b-instant - 6K TPM
-  balanced: 120,  // llama-3.3-70b-versatile - 12K TPM  
-  powerful: 300   // compound-beta - 70K TPM but payload limited
+  fast: 60,       // llama-3.1-8b-instant - very fast
+  balanced: 80,   // llama-3.3-70b-versatile - medium
+  powerful: 120   // compound-beta - slower but 70K TPM
 };
 const DEFAULT_MODEL = 'powerful';
-const FULL_MODE_THRESHOLD = 300; // Show modal above this
+const FULL_MODE_THRESHOLD = 120; // Show modal above this
 
 // ==============================================
 // State

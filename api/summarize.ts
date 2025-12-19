@@ -29,11 +29,11 @@ const MODELS = {
   powerful: 'compound-beta'             // 70K TPM
 };
 
-// Max messages - limited by HTTP payload size and Vercel timeout, not just TPM
+// Max messages - must complete in <10s (Vercel timeout)
 const MAX_MESSAGES = {
-  fast: 80,       // ~80 msgs to stay under 6K tokens
-  balanced: 120,  // ~120 msgs for 12K tokens
-  powerful: 300   // ~300 msgs - payload size limit, not tokens
+  fast: 60,       // Very fast model
+  balanced: 80,   // Medium speed
+  powerful: 120   // compound-beta is slower, keep chunks small
 };
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
