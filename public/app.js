@@ -182,6 +182,39 @@ async function summarizeChunk(messages, isPartial = false) {
 }
 
 async function mergeSummaries(summaries) {
+  // If too many summaries, merge in batches of 3
+  if (summaries.length > 4) {
+    const batches = [];
+    for (let i = 0; i < summaries.length; i += 3) {
+      batches.push(summaries.slice(i, i + 3));
+    }
+    
+    // First pass: merge each batch
+    const firstPassResults = [];
+    for (const batch of batches) {
+      if (batch.length === 1) {
+        firstPassResults.push(batch[0]);
+      } else {
+        const res = await fetch('/api/merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ summaries: batch, level: state.level, privacy: state.privacy })
+        });
+        if (!res.ok) throw new Error((await res.json()).error || 'Erro ao combinar');
+        const data = await res.json();
+        firstPassResults.push(data.summary);
+      }
+    }
+    
+    // If still too many, merge again
+    if (firstPassResults.length > 3) {
+      return mergeSummaries(firstPassResults);
+    }
+    
+    // Final merge
+    summaries = firstPassResults;
+  }
+  
   const res = await fetch('/api/merge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -9,19 +9,24 @@ interface MergeRequestBody {
 }
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct'; // 30K TPM - best!
+
+// Use FAST model for merge to avoid timeout
+const MODEL = 'llama-3.1-8b-instant';
+
+// Max chars to send (to stay under 10s timeout)
+const MAX_INPUT_CHARS = 8000;
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
-  1: { maxTokens: 200, prompt: 'Crie um resumo ULTRA-CURTO em 2-3 frases.' },
-  2: { maxTokens: 500, prompt: 'Crie um resumo CURTO com parágrafos breves.' },
-  3: { maxTokens: 800, prompt: 'Crie um resumo DETALHADO cobrindo todos os assuntos.' },
-  4: { maxTokens: 1200, prompt: 'Crie um resumo COMPLETO com todos os detalhes.' }
+  1: { maxTokens: 150, prompt: 'Crie um resumo ULTRA-CURTO em 2-3 frases.' },
+  2: { maxTokens: 300, prompt: 'Crie um resumo CURTO com parágrafos breves.' },
+  3: { maxTokens: 500, prompt: 'Crie um resumo DETALHADO.' },
+  4: { maxTokens: 700, prompt: 'Crie um resumo COMPLETO.' }
 };
 
 const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
-  'anonymous': 'NÃO mencione nomes. Use termos genéricos.',
+  'anonymous': 'NÃO mencione nomes.',
   'with-names': 'Mencione nomes quando relevante.',
-  'smart': 'Mencione nomes apenas para contribuições importantes.'
+  'smart': 'Mencione nomes apenas quando importante.'
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
@@ -43,19 +48,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const config = LEVEL_CONFIGS[level as SummaryLevel] || LEVEL_CONFIGS[3];
     const privacyNote = PRIVACY_INSTRUCTIONS[privacy as PrivacyMode] || PRIVACY_INSTRUCTIONS['smart'];
 
-    const systemPrompt = `Você é um assistente que consolida múltiplos resumos de conversa em português brasileiro.
+    // Truncate summaries if too long
+    let combined = '';
+    for (let i = 0; i < summaries.length; i++) {
+      const part = `Parte ${i + 1}: ${summaries[i]}\n\n`;
+      if (combined.length + part.length > MAX_INPUT_CHARS) {
+        // Truncate this part to fit
+        const remaining = MAX_INPUT_CHARS - combined.length - 50;
+        if (remaining > 100) {
+          combined += `Parte ${i + 1}: ${summaries[i].slice(0, remaining)}...\n\n`;
+        }
+        break;
+      }
+      combined += part;
+    }
+
+    const systemPrompt = `Você consolida resumos em português brasileiro.
 ${config.prompt}
 ${privacyNote}
-Combine os resumos parciais em um único resumo coeso, removendo redundâncias.
-Organize por temas/assuntos. Use markdown para formatação.`;
-
-    const combined = summaries.map((s, i) => `### Parte ${i + 1}\n${s}`).join('\n\n');
+Combine em um resumo único e coeso. Use markdown.`;
 
     const completion = await groq.chat.completions.create({
       model: MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Combine estes ${summaries.length} resumos parciais em um resumo final unificado:\n\n${combined}` }
+        { role: 'user', content: `Combine estes resumos:\n\n${combined}` }
       ],
       max_tokens: config.maxTokens,
       temperature: 0.3,
@@ -69,10 +86,9 @@ Organize por temas/assuntos. Use markdown para formatação.`;
   } catch (err) {
     console.error('Merge error:', err);
     if (err instanceof Error && err.message.includes('rate')) {
-      res.status(429).json({ error: 'Limite de tokens excedido. Aguarde um momento.' });
+      res.status(429).json({ error: 'Limite de tokens. Aguarde.' });
       return;
     }
-    res.status(500).json({ error: 'Falha ao combinar resumos' });
+    res.status(500).json({ error: 'Falha ao combinar' });
   }
 }
-
