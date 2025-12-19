@@ -22,18 +22,19 @@ interface SummarizeRequestBody {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Models available
+// Models - tested for Vercel 10s timeout
+// llama-3.3-70b-versatile is the BEST: fast (<1s) and handles 150 msgs
 const MODELS = {
-  fast: 'llama-3.1-8b-instant',        // 6K TPM - fastest
-  balanced: 'llama-3.3-70b-versatile', // 12K TPM - better quality  
-  powerful: 'compound-beta'             // 70K TPM
+  fast: 'llama-3.1-8b-instant',        // 6K TPM, <1s, max 100 msgs
+  balanced: 'llama-3.3-70b-versatile', // 12K TPM, <1s, max 150 msgs - BEST!
+  powerful: 'llama-3.3-70b-versatile'  // Same - compound-beta was too slow
 };
 
-// Max messages - must complete in <10s (Vercel timeout)
+// Max messages per request (tested limits for <10s response)
 const MAX_MESSAGES = {
-  fast: 60,       // Very fast model
-  balanced: 80,   // Medium speed
-  powerful: 120   // compound-beta is slower, keep chunks small
+  fast: 100,      // Safe limit from tests
+  balanced: 150,  // Best performance!
+  powerful: 150   // Same as balanced now
 };
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {

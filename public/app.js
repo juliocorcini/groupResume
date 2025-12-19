@@ -5,14 +5,15 @@
 // ==============================================
 // Constants
 // ==============================================
-// Chunks must complete in <10s (Vercel timeout)
+// Tested limits for Vercel 10s timeout
+// llama-3.3-70b-versatile is BEST: <1s response, 150 msgs/chunk
 const MODEL_LIMITS = {
-  fast: 60,       // llama-3.1-8b-instant - very fast
-  balanced: 80,   // llama-3.3-70b-versatile - medium
-  powerful: 120   // compound-beta - slower but 70K TPM
+  fast: 100,      // llama-3.1-8b-instant
+  balanced: 150,  // llama-3.3-70b-versatile - BEST!
+  powerful: 150   // Same (compound-beta was too slow)
 };
-const DEFAULT_MODEL = 'powerful';
-const FULL_MODE_THRESHOLD = 120; // Show modal above this
+const DEFAULT_MODEL = 'balanced'; // Best performance!
+const FULL_MODE_THRESHOLD = 150; // Show modal above this
 
 // ==============================================
 // State
