@@ -149,7 +149,8 @@ async function mergeSummaries(summaries) {
 function showModeModal(messageCount) {
   const chunkSize = MODEL_LIMITS[state.model];
   const chunks = Math.ceil(messageCount / chunkSize);
-  const estimatedTime = chunks * 10; // ~10 seconds per chunk
+  // With 70K TPM, chunks process quickly in sequence (no waits between)
+  const estimatedTime = chunks * 5 + 5; // ~5s per chunk + 5s for merge
   
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -163,13 +164,13 @@ function showModeModal(messageCount) {
           <div class="mode-icon">⚡</div>
           <h3>Rápido</h3>
           <p>Amostra de ~${chunkSize} mensagens</p>
-          <div class="mode-time">~8 segundos</div>
+          <div class="mode-time">~5 segundos</div>
         </div>
         
         <div class="mode-card" data-mode="full">
           <div class="mode-icon">📖</div>
           <h3>Completo</h3>
-          <p>Todas as ${messageCount} msgs em ${chunks} partes</p>
+          <p>${chunks} partes processadas em sequência</p>
           <div class="mode-time">~${formatTime(estimatedTime)}</div>
         </div>
       </div>
@@ -239,18 +240,24 @@ async function processFull(messages) {
   
   showProgressUI(chunks.length);
   const summaries = [];
+  let tokensUsed = 0;
+  const TPM_LIMIT = 70000; // compound-beta has 70K TPM
   
   try {
     for (let i = 0; i < chunks.length; i++) {
-      updateProgressUI(i, chunks.length, `Processando parte ${i + 1}...`);
+      updateProgressUI(i, chunks.length, `Parte ${i + 1}/${chunks.length}...`);
       
       const result = await summarizeChunk(chunks[i], true);
       summaries.push(result.summary);
+      tokensUsed += result.stats?.tokensUsed || 0;
       
-      // Small delay between requests
-      if (i < chunks.length - 1) {
-        await new Promise(r => setTimeout(r, 1000));
+      // Check if approaching TPM limit - only wait if needed
+      if (tokensUsed > TPM_LIMIT * 0.9 && i < chunks.length - 1) {
+        updateProgressUI(i + 1, chunks.length, 'Aguardando reset de tokens...');
+        await new Promise(r => setTimeout(r, 60000)); // Wait 1 min for reset
+        tokensUsed = 0; // Reset counter
       }
+      // No delay needed otherwise - use all 70K TPM!
     }
     
     // Merge all summaries
@@ -273,7 +280,12 @@ async function processFull(messages) {
     
   } catch (err) {
     hideLoading();
-    showToast(err.message, 'error');
+    // If rate limited, show helpful message
+    if (err.message.includes('429') || err.message.includes('Limite')) {
+      showToast('Limite de tokens atingido. Aguarde 1 minuto e tente novamente.', 'error');
+    } else {
+      showToast(err.message, 'error');
+    }
   }
 }
 
