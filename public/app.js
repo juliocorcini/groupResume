@@ -5,14 +5,14 @@
 // ==============================================
 // Constants
 // ==============================================
-// compound-beta has 70K TPM - can process ~800 messages at once!
+// Limits are due to HTTP payload size and Vercel timeout, not just TPM
 const MODEL_LIMITS = {
   fast: 80,       // llama-3.1-8b-instant - 6K TPM
-  balanced: 150,  // llama-3.3-70b-versatile - 12K TPM  
-  powerful: 800   // compound-beta - 70K TPM
+  balanced: 120,  // llama-3.3-70b-versatile - 12K TPM  
+  powerful: 300   // compound-beta - 70K TPM but payload limited
 };
 const DEFAULT_MODEL = 'powerful';
-const FULL_MODE_THRESHOLD = 800; // Only show modal above compound-beta's limit
+const FULL_MODE_THRESHOLD = 300; // Show modal above this
 
 // ==============================================
 // State

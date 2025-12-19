@@ -22,18 +22,18 @@ interface SummarizeRequestBody {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Models available - compound-beta has 70K TPM!
+// Models available
 const MODELS = {
   fast: 'llama-3.1-8b-instant',        // 6K TPM - fastest
   balanced: 'llama-3.3-70b-versatile', // 12K TPM - better quality  
-  powerful: 'compound-beta'             // 70K TPM - can handle large batches
+  powerful: 'compound-beta'             // 70K TPM
 };
 
-// Max messages depends on model
+// Max messages - limited by HTTP payload size and Vercel timeout, not just TPM
 const MAX_MESSAGES = {
-  fast: 80,       // ~6K tokens
-  balanced: 150,  // ~12K tokens
-  powerful: 800   // ~70K tokens - can do most days in one request!
+  fast: 80,       // ~80 msgs to stay under 6K tokens
+  balanced: 120,  // ~120 msgs for 12K tokens
+  powerful: 300   // ~300 msgs - payload size limit, not tokens
 };
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
