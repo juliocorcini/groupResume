@@ -10,20 +10,31 @@ interface ParsedMessage {
   isMedia: boolean;
 }
 
+type ModelType = 'fast' | 'balanced' | 'powerful';
+
 interface SummarizeRequestBody {
   messages: ParsedMessage[];
   level: SummaryLevel;
   privacy: PrivacyMode;
+  model?: ModelType;
   isPartial?: boolean;
 }
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Fast model to stay under Vercel's 10s timeout
-const MODEL = 'llama-3.1-8b-instant';
+// Models available - compound-beta has 70K TPM!
+const MODELS = {
+  fast: 'llama-3.1-8b-instant',        // 6K TPM - fastest
+  balanced: 'llama-3.3-70b-versatile', // 12K TPM - better quality  
+  powerful: 'compound-beta'             // 70K TPM - can handle large batches
+};
 
-// Max messages to process in one request (to stay under 10s timeout)
-const MAX_MESSAGES = 250;
+// Max messages depends on model
+const MAX_MESSAGES = {
+  fast: 80,       // ~6K tokens
+  balanced: 150,  // ~12K tokens
+  powerful: 800   // ~70K tokens - can do most days in one request!
+};
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
   1: { maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em 2-3 frases.' },
@@ -61,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const startTime = Date.now();
 
   try {
-    const { messages, level = 3, privacy = 'smart', isPartial = false } = req.body as SummarizeRequestBody;
+    const { messages, level = 3, privacy = 'smart', model = 'powerful', isPartial = false } = req.body as SummarizeRequestBody;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       res.status(400).json({ error: 'No messages provided' });
@@ -71,10 +82,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const summaryLevel: SummaryLevel = ([1, 2, 3, 4].includes(level) ? level : 3) as SummaryLevel;
     const privacyMode: PrivacyMode = ['anonymous', 'with-names', 'smart'].includes(privacy) ? privacy : 'smart';
     const includeNames = privacyMode !== 'anonymous';
+    const modelType: ModelType = ['fast', 'balanced', 'powerful'].includes(model) ? model : 'powerful';
+    
+    const selectedModel = MODELS[modelType];
+    const maxMessages = MAX_MESSAGES[modelType];
 
-    // Limit messages to avoid timeout
-    const messagesToProcess = messages.slice(0, MAX_MESSAGES);
-    const wasLimited = messages.length > MAX_MESSAGES;
+    // Limit messages based on model capacity
+    const messagesToProcess = messages.slice(0, maxMessages);
+    const wasLimited = messages.length > maxMessages;
 
     const config = LEVEL_CONFIGS[summaryLevel];
     const privacyNote = PRIVACY_INSTRUCTIONS[privacyMode];
@@ -88,7 +103,7 @@ ${isPartial ? 'Este é uma PARTE da conversa. Resuma esta parte.' : ''}
 Organize por temas. Use markdown.`;
 
     const completion = await groq.chat.completions.create({
-      model: MODEL,
+      model: selectedModel,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Resuma:\n\n${messagesText}` }
@@ -106,7 +121,8 @@ Organize por temas. Use markdown.`;
         tokensUsed: completion.usage?.total_tokens || 0,
         processingTime: Date.now() - startTime,
         wasLimited,
-        maxMessages: MAX_MESSAGES
+        maxMessages,
+        model: modelType
       }
     });
 

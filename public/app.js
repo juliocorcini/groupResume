@@ -5,9 +5,14 @@
 // ==============================================
 // Constants
 // ==============================================
-const SERVER_CHUNK_SIZE = 250; // Server processes max this many per request
-const QUICK_SAMPLE_SIZE = 200; // Messages for quick sampling
-const FULL_MODE_THRESHOLD = 500; // Show mode modal above this
+// compound-beta has 70K TPM - can process ~800 messages at once!
+const MODEL_LIMITS = {
+  fast: 80,       // llama-3.1-8b-instant - 6K TPM
+  balanced: 150,  // llama-3.3-70b-versatile - 12K TPM  
+  powerful: 800   // compound-beta - 70K TPM
+};
+const DEFAULT_MODEL = 'powerful';
+const FULL_MODE_THRESHOLD = 800; // Only show modal above compound-beta's limit
 
 // ==============================================
 // State
@@ -18,7 +23,8 @@ const state = {
   selectedDate: null,
   selectedDateInfo: null,
   level: 3,
-  privacy: 'smart'
+  privacy: 'smart',
+  model: DEFAULT_MODEL
 };
 
 // ==============================================
@@ -114,7 +120,13 @@ async function summarizeChunk(messages, isPartial = false) {
   const res = await fetch('/api/summarize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, level: state.level, privacy: state.privacy, isPartial })
+    body: JSON.stringify({ 
+      messages, 
+      level: state.level, 
+      privacy: state.privacy, 
+      model: state.model,
+      isPartial 
+    })
   });
   if (!res.ok) throw new Error((await res.json()).error || 'Erro ao resumir');
   return res.json();
@@ -135,8 +147,9 @@ async function mergeSummaries(summaries) {
 // ==============================================
 
 function showModeModal(messageCount) {
-  const chunks = Math.ceil(messageCount / SERVER_CHUNK_SIZE);
-  const estimatedTime = chunks * 8; // ~8 seconds per chunk
+  const chunkSize = MODEL_LIMITS[state.model];
+  const chunks = Math.ceil(messageCount / chunkSize);
+  const estimatedTime = chunks * 10; // ~10 seconds per chunk
   
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
@@ -149,14 +162,14 @@ function showModeModal(messageCount) {
         <div class="mode-card" data-mode="quick">
           <div class="mode-icon">⚡</div>
           <h3>Rápido</h3>
-          <p>Amostra de ~${QUICK_SAMPLE_SIZE} mensagens</p>
-          <div class="mode-time">~5 segundos</div>
+          <p>Amostra de ~${chunkSize} mensagens</p>
+          <div class="mode-time">~8 segundos</div>
         </div>
         
         <div class="mode-card" data-mode="full">
           <div class="mode-icon">📖</div>
           <h3>Completo</h3>
-          <p>Todas as ${messageCount} mensagens em ${chunks} partes</p>
+          <p>Todas as ${messageCount} msgs em ${chunks} partes</p>
           <div class="mode-time">~${formatTime(estimatedTime)}</div>
         </div>
       </div>
@@ -192,17 +205,21 @@ async function processQuick(messages) {
   try {
     showLoading('Gerando resumo...');
     
-    // Sample if too many messages
+    const maxMsgs = MODEL_LIMITS[state.model];
     let toProcess = messages;
-    if (messages.length > QUICK_SAMPLE_SIZE) {
-      const step = Math.floor(messages.length / QUICK_SAMPLE_SIZE);
-      toProcess = messages.filter((_, i) => i % step === 0).slice(0, QUICK_SAMPLE_SIZE);
+    let sampled = false;
+    
+    // Sample if above model limit
+    if (messages.length > maxMsgs) {
+      const step = Math.floor(messages.length / maxMsgs);
+      toProcess = messages.filter((_, i) => i % step === 0).slice(0, maxMsgs);
+      sampled = true;
     }
     
     const result = await summarizeChunk(toProcess, false);
     
     let summary = result.summary;
-    if (messages.length > QUICK_SAMPLE_SIZE) {
+    if (sampled) {
       summary += `\n\n---\n_Resumo de ${toProcess.length} de ${messages.length} mensagens_`;
     }
     
@@ -214,9 +231,10 @@ async function processQuick(messages) {
 }
 
 async function processFull(messages) {
+  const chunkSize = MODEL_LIMITS[state.model];
   const chunks = [];
-  for (let i = 0; i < messages.length; i += SERVER_CHUNK_SIZE) {
-    chunks.push(messages.slice(i, i + SERVER_CHUNK_SIZE));
+  for (let i = 0; i < messages.length; i += chunkSize) {
+    chunks.push(messages.slice(i, i + chunkSize));
   }
   
   showProgressUI(chunks.length);
