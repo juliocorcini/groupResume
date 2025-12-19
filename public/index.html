@@ -15,6 +15,9 @@
   <!-- Preconnect to Groq API -->
   <link rel="preconnect" href="https://api.groq.com">
   
+  <!-- JSZip for extracting .zip files -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -33,8 +36,8 @@
           <div class="upload-icon">📄</div>
           <h2>Arraste o arquivo aqui</h2>
           <p>ou clique para selecionar</p>
-          <p class="upload-hint">Arquivo .txt exportado do WhatsApp</p>
-          <input type="file" id="file-input" accept=".txt,text/plain" hidden>
+          <p class="upload-hint">Arquivo .txt ou .zip exportado do WhatsApp</p>
+          <input type="file" id="file-input" accept=".txt,.zip,text/plain,application/zip" hidden>
         </div>
         
         <div class="how-to">

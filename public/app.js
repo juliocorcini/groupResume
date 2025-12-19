@@ -375,11 +375,59 @@ function selectDate(info) {
 // File Upload
 // ==============================================
 
+async function extractTxtFromZip(zipFile) {
+  try {
+    const zip = await JSZip.loadAsync(zipFile);
+    
+    // Find all .txt files and get the largest one
+    let largestTxt = null;
+    let largestSize = 0;
+    
+    for (const [filename, file] of Object.entries(zip.files)) {
+      if (filename.endsWith('.txt') && !file.dir) {
+        const content = await file.async('string');
+        if (content.length > largestSize) {
+          largestSize = content.length;
+          largestTxt = { name: filename, content };
+        }
+      }
+    }
+    
+    if (!largestTxt) {
+      throw new Error('Nenhum arquivo .txt encontrado no ZIP');
+    }
+    
+    console.log(`Extracted ${largestTxt.name} (${(largestSize / 1024).toFixed(1)} KB) from ZIP`);
+    return largestTxt;
+  } catch (err) {
+    throw new Error('Erro ao extrair ZIP: ' + err.message);
+  }
+}
+
 async function handleFile(file) {
   if (!file) return;
-  if (!file.name.endsWith('.txt') && file.type !== 'text/plain') {
-    showToast('Selecione um arquivo .txt do WhatsApp', 'error');
+  
+  const isZip = file.name.endsWith('.zip') || file.type === 'application/zip';
+  const isTxt = file.name.endsWith('.txt') || file.type === 'text/plain';
+  
+  if (!isZip && !isTxt) {
+    showToast('Selecione um arquivo .txt ou .zip do WhatsApp', 'error');
     return;
+  }
+  
+  // If ZIP, extract the largest .txt file
+  if (isZip) {
+    try {
+      showLoading('Extraindo arquivo do ZIP...');
+      const extracted = await extractTxtFromZip(file);
+      // Create a new File object from the extracted content
+      file = new File([extracted.content], extracted.name, { type: 'text/plain' });
+      showToast(`Extraído: ${extracted.name}`, 'success');
+    } catch (err) {
+      hideLoading();
+      showToast(err.message, 'error');
+      return;
+    }
   }
   
   try {
