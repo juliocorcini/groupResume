@@ -30,11 +30,8 @@ const TIME_TO_MSGS = {
 // Sampling: messages per day in sampling mode
 const MSGS_PER_DAY_SAMPLING = 300;
 
-// Rate limiting for group analysis (llama-4-scout = 30K TPM)
-const ANALYSIS_TPM_LIMIT = 30000;
-const TOKENS_PER_MSG_ESTIMATE = 25;
-const ANALYSIS_CHUNK_SIZE = 200; // ~5K tokens per chunk
-const SAFE_CHUNKS_PER_MINUTE = 5; // 5 chunks * 5K = 25K tokens (safe buffer)
+// Group analysis chunk size (200 msgs = ~5K tokens, fits in 10s Vercel timeout)
+const ANALYSIS_CHUNK_SIZE = 200;
 
 // ==============================================
 // State
@@ -604,64 +601,59 @@ async function startGroupAnalysis() {
       const result = await analyzeGroup(chunks[0], state.analysisStyle);
       displayGroupResult(result.analysis, result.vibeScore, stats);
     } else {
-      // Multiple chunks with rate limiting
+      // Multiple chunks - process with smart rate limit handling
       showProgressUI(chunks.length);
       const summaries = [];
-      let chunksInCurrentMinute = 0;
-      let minuteStartTime = Date.now();
       
       for (let i = 0; i < chunks.length; i++) {
-        // Rate limit check: max 5 chunks per minute (25K of 30K TPM)
-        chunksInCurrentMinute++;
-        
-        if (chunksInCurrentMinute > SAFE_CHUNKS_PER_MINUTE) {
-          const elapsed = Date.now() - minuteStartTime;
-          const waitTime = Math.max(0, 60000 - elapsed + 2000); // Wait until minute + 2s buffer
-          
-          if (waitTime > 0) {
-            updateProgressUI(i, chunks.length, `Aguardando limite de API (${Math.ceil(waitTime/1000)}s)...`);
-            await new Promise(r => setTimeout(r, waitTime));
-          }
-          
-          // Reset counter for new minute
-          chunksInCurrentMinute = 1;
-          minuteStartTime = Date.now();
-        }
-        
         updateProgressUI(i, chunks.length, `Analisando parte ${i + 1}/${chunks.length}...`);
         
-        try {
-          const result = await analyzeGroup(chunks[i], state.analysisStyle);
-          summaries.push(result.analysis);
-        } catch (err) {
-          // If rate limit error, wait and retry
-          if (err.message && err.message.includes('rate')) {
-            const waitMatch = err.message.match(/(\d+\.?\d*)s/);
-            const waitTime = waitMatch ? parseFloat(waitMatch[1]) * 1000 + 2000 : 15000;
-            updateProgressUI(i, chunks.length, `Limite atingido, aguardando ${Math.ceil(waitTime/1000)}s...`);
-            await new Promise(r => setTimeout(r, waitTime));
-            
-            // Retry
-            const result = await analyzeGroup(chunks[i], state.analysisStyle);
-            summaries.push(result.analysis);
-            
-            // Reset rate limit tracking
-            chunksInCurrentMinute = 1;
-            minuteStartTime = Date.now();
-          } else {
-            throw err;
-          }
-        }
+        // Try with automatic retry on rate limit
+        const result = await callWithRateLimitRetry(
+          () => analyzeGroup(chunks[i], state.analysisStyle),
+          (waitSec) => updateProgressUI(i, chunks.length, `Aguardando ${waitSec}s...`),
+          3 // max retries
+        );
+        
+        summaries.push(result.analysis);
       }
       
       updateProgressUI(chunks.length, chunks.length, 'Combinando análises...');
       const mergeResult = await mergeSummaries(summaries);
       
-      displayGroupResult(mergeResult.summary, 7, stats); // Default vibe score
+      displayGroupResult(mergeResult.summary, 7, stats);
     }
   } catch (err) {
     hideLoading();
     showToast(err.message, 'error');
+  }
+}
+
+// Smart rate limit handler - waits only the necessary time
+async function callWithRateLimitRetry(fn, onWait, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit = err.message && (
+        err.message.includes('rate') || 
+        err.message.includes('429') ||
+        err.message.includes('Rate limit')
+      );
+      
+      if (!isRateLimit || attempt === maxRetries) {
+        throw err;
+      }
+      
+      // Parse wait time from error: "Please try again in 7.39s"
+      const waitMatch = err.message.match(/(\d+\.?\d*)\s*s/);
+      const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) + 1 : 8;
+      
+      console.log(`Rate limit hit, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
+      onWait(waitSec);
+      
+      await new Promise(r => setTimeout(r, waitSec * 1000));
+    }
   }
 }
 
