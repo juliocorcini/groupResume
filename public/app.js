@@ -611,7 +611,7 @@ async function startGroupAnalysis() {
         // Try with automatic retry on rate limit
         const result = await callWithRateLimitRetry(
           () => analyzeGroup(chunks[i], state.analysisStyle),
-          (waitSec) => updateProgressUI(i, chunks.length, `Aguardando ${waitSec}s...`),
+          (waitSec) => showRateLimitWait(i + 1, chunks.length, waitSec),
           3 // max retries
         );
         
@@ -627,6 +627,19 @@ async function startGroupAnalysis() {
     hideLoading();
     showToast(err.message, 'error');
   }
+}
+
+// Show rate limit wait UI
+function showRateLimitWait(current, total, waitSec) {
+  elements.loadingText.innerHTML = `
+    <div class="rate-limit-wait">
+      <div class="rate-limit-icon">⏳</div>
+      <div class="rate-limit-title">Limite de API atingido</div>
+      <div class="rate-limit-msg">Aguardando ${waitSec} segundos para continuar...</div>
+      <div class="rate-limit-progress">Parte ${current} de ${total}</div>
+      <div class="rate-limit-hint">Isso é normal para análises grandes</div>
+    </div>
+  `;
 }
 
 // Smart rate limit handler - waits only the necessary time

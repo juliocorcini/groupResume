@@ -14,6 +14,7 @@
   
   --accent-primary: #6366f1;
   --accent-secondary: #818cf8;
+  --accent-warning: #f59e0b;
   --accent-glow: rgba(99, 102, 241, 0.3);
   
   --success: #22c55e;
@@ -548,6 +549,47 @@ a:hover {
 #loading-text {
   color: var(--text-secondary);
   font-size: 0.95rem;
+}
+
+/* Rate Limit Wait UI */
+.rate-limit-wait {
+  text-align: center;
+  padding: var(--spacing-md);
+}
+
+.rate-limit-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--spacing-sm);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+.rate-limit-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent-warning);
+  margin-bottom: var(--spacing-xs);
+}
+
+.rate-limit-msg {
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.rate-limit-progress {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.rate-limit-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 /* ==============================================
