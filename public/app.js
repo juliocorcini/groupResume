@@ -1,16 +1,15 @@
 /**
  * WhatsApp Group Summarizer - Frontend Application
+ * Refactored to work with serverless (no persistent storage on server)
  */
 
 // ==============================================
-// State
+// State - Now stores all data client-side
 // ==============================================
 const state = {
-  chatId: null,
-  allDates: [],
-  recentDates: [],
+  messagesByDate: {},  // All messages grouped by date
+  allDates: [],        // All available dates
   selectedDate: null,
-  totalDays: 0,
   level: 3,
   privacy: 'smart'
 };
@@ -121,26 +120,15 @@ async function uploadFile(file) {
   return response.json();
 }
 
-async function loadAllDates() {
-  const response = await fetch(`/api/dates?id=${state.chatId}&all=true`);
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to load dates');
-  }
-  
-  return response.json();
-}
-
-async function generateSummary() {
+async function generateSummary(messages, date) {
   const response = await fetch('/api/summarize', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      id: state.chatId,
-      date: state.selectedDate,
+      messages,
+      date,
       level: state.level,
       privacy: state.privacy
     })
@@ -228,16 +216,17 @@ async function handleFile(file) {
     
     const result = await uploadFile(file);
     
-    state.chatId = result.id;
-    state.recentDates = result.recentDates;
-    state.totalDays = result.totalDays;
+    // Store all data client-side
+    state.messagesByDate = result.messagesByDate;
+    state.allDates = result.dates;
     
     // Update dates info
     elements.datesInfo.textContent = 
       `${result.totalMessages.toLocaleString()} mensagens em ${result.totalDays} dias`;
     
-    // Render recent dates
-    renderDates(result.recentDates, elements.recentDates);
+    // Render first 3 dates
+    const recentDates = result.dates.slice(0, 3);
+    renderDates(recentDates, elements.recentDates);
     
     // Show load more button if there are more dates
     elements.loadMoreDates.hidden = result.totalDays <= 3;
@@ -258,9 +247,17 @@ async function handleFile(file) {
 
 async function handleSummarize() {
   try {
+    // Get messages for selected date from client-side storage
+    const messages = state.messagesByDate[state.selectedDate];
+    
+    if (!messages || messages.length === 0) {
+      showToast('Nenhuma mensagem encontrada para esta data', 'error');
+      return;
+    }
+    
     showLoading('Gerando resumo com IA...');
     
-    const result = await generateSummary();
+    const result = await generateSummary(messages, state.selectedDate);
     
     // Format and display summary
     elements.summaryText.innerHTML = formatSummary(result.summary);
@@ -339,34 +336,20 @@ elements.uploadArea.addEventListener('drop', (e) => {
   handleFile(e.dataTransfer.files[0]);
 });
 
-// Load more dates
-elements.loadMoreDates.addEventListener('click', async () => {
-  try {
-    showLoading('Carregando todas as datas...');
-    
-    const result = await loadAllDates();
-    state.allDates = result.dates;
-    
-    // Hide load more button, show all dates
-    elements.loadMoreDates.hidden = true;
-    elements.allDates.hidden = false;
-    
-    // Render all dates (skip first 3 which are already shown)
-    renderDates(result.dates.slice(3), elements.allDates);
-    
-    hideLoading();
-    
-  } catch (error) {
-    hideLoading();
-    showToast(error.message, 'error');
-  }
+// Load more dates - now uses client-side data
+elements.loadMoreDates.addEventListener('click', () => {
+  // Hide load more button, show all dates
+  elements.loadMoreDates.hidden = true;
+  elements.allDates.hidden = false;
+  
+  // Render remaining dates (skip first 3 which are already shown)
+  renderDates(state.allDates.slice(3), elements.allDates);
 });
 
 // Navigation
 elements.btnBackUpload.addEventListener('click', () => {
-  state.chatId = null;
+  state.messagesByDate = {};
   state.allDates = [];
-  state.recentDates = [];
   elements.fileInput.value = '';
   showStep('upload');
 });
@@ -445,12 +428,6 @@ if ('serviceWorker' in navigator) {
     .catch(err => console.error('SW registration failed:', err));
 }
 
-// Handle share target (when app receives shared file)
-if (window.location.pathname === '/share') {
-  // The share target will be handled by share.html
-  // which redirects to this page with the file
-}
-
 // ==============================================
 // Initialize
 // ==============================================
@@ -476,4 +453,3 @@ async function init() {
 
 // Run initialization
 init();
-

@@ -1,10 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import formidable from 'formidable';
 import { readFile } from 'fs/promises';
-import { parseAndIndex } from '../src/services/parser.js';
-import { extractDateInfo, getRecentDates, getDateStats } from '../src/services/dateExtractor.js';
-import { generateId, storeChat } from '../src/services/store.js';
-import type { UploadResponse, ErrorResponse } from '../src/types/index.js';
+import type { ErrorResponse } from '../src/types/index.js';
 
 // Disable body parsing - we handle it with formidable
 export const config = {
@@ -13,10 +10,43 @@ export const config = {
   },
 };
 
+// Regex to match WhatsApp message format
+const MESSAGE_REGEX = /^(\d{2}\/\d{2}\/\d{4}) (\d{2}:\d{2}) - ([^:]+): (.*)$/;
+
+function convertDate(brDate: string): string {
+  const [day, month, year] = brDate.split('/');
+  return `${year}-${month}-${day}`;
+}
+
+function isMediaMessage(content: string): boolean {
+  const mediaPatterns = ['<mídia oculta>', '<media omitted>', 'imagem ocultada'];
+  return mediaPatterns.some(pattern => content.toLowerCase().includes(pattern));
+}
+
+interface ParsedMessage {
+  date: string;
+  time: string;
+  sender: string;
+  content: string;
+  isMedia: boolean;
+}
+
+interface DateInfo {
+  date: string;
+  messageCount: number;
+  participants: number;
+  preview: string;
+}
+
+interface MessagesByDate {
+  [date: string]: ParsedMessage[];
+}
+
 /**
  * POST /api/upload
  * 
- * Receives a WhatsApp export file and returns available dates
+ * Receives a WhatsApp export file and returns all parsed data
+ * Client stores this data and sends it back for summarization
  */
 export default async function handler(
   req: VercelRequest,
@@ -72,10 +102,51 @@ export default async function handler(
       return;
     }
 
-    // Parse WhatsApp chat
-    const { messages, dateIndex } = parseAndIndex(fileContent);
+    // Parse messages
+    const lines = fileContent.split('\n');
+    const messagesByDate: MessagesByDate = {};
+    let currentMessage: ParsedMessage | null = null;
 
-    if (messages.length === 0) {
+    for (const line of lines) {
+      if (!line.trim() && !currentMessage) continue;
+
+      const messageMatch = line.match(MESSAGE_REGEX);
+      
+      if (messageMatch) {
+        if (currentMessage) {
+          // Save previous message
+          if (!messagesByDate[currentMessage.date]) {
+            messagesByDate[currentMessage.date] = [];
+          }
+          messagesByDate[currentMessage.date].push(currentMessage);
+        }
+
+        const [, brDate, time, sender, content] = messageMatch;
+        currentMessage = {
+          date: convertDate(brDate),
+          time,
+          sender: sender.trim(),
+          content: content,
+          isMedia: isMediaMessage(content)
+        };
+      } else if (currentMessage && line.trim()) {
+        // Multi-line message continuation
+        currentMessage.content += '\n' + line;
+      }
+    }
+
+    // Don't forget the last message
+    if (currentMessage) {
+      if (!messagesByDate[currentMessage.date]) {
+        messagesByDate[currentMessage.date] = [];
+      }
+      messagesByDate[currentMessage.date].push(currentMessage);
+    }
+
+    // Check if we got any messages
+    const totalMessages = Object.values(messagesByDate).reduce((sum, msgs) => sum + msgs.length, 0);
+    
+    if (totalMessages === 0) {
       const error: ErrorResponse = { 
         error: 'No messages found. Make sure this is a WhatsApp export file.', 
         code: 'NO_MESSAGES' 
@@ -84,32 +155,31 @@ export default async function handler(
       return;
     }
 
-    // Extract date information
-    const allDates = extractDateInfo(messages, dateIndex);
-    const recentDates = getRecentDates(allDates, 3);
-    const stats = getDateStats(allDates);
+    // Build date info
+    const dates: DateInfo[] = Object.entries(messagesByDate)
+      .map(([date, messages]) => {
+        const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
+        const firstMsg = messages.find(m => !m.isMedia && m.sender !== '__system__');
+        const preview = firstMsg ? firstMsg.content.substring(0, 50) + (firstMsg.content.length > 50 ? '...' : '') : '';
+        
+        return {
+          date,
+          messageCount: messages.length,
+          participants: participants.size,
+          preview
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
 
-    // Generate ID and store
-    const id = generateId();
-    storeChat({
-      id,
-      messages,
-      dateIndex,
-      dates: allDates,
-      uploadedAt: Date.now()
+    // Return all data to client
+    res.status(200).json({
+      messagesByDate,
+      dates,
+      totalMessages,
+      totalDays: dates.length,
+      oldestDate: dates[dates.length - 1]?.date || '',
+      newestDate: dates[0]?.date || ''
     });
-
-    // Build response
-    const response: UploadResponse = {
-      id,
-      recentDates,
-      totalDays: stats.totalDays,
-      oldestDate: stats.oldestDate,
-      newestDate: stats.newestDate,
-      totalMessages: stats.totalMessages
-    };
-
-    res.status(200).json(response);
 
   } catch (err) {
     console.error('Upload error:', err);
@@ -120,4 +190,3 @@ export default async function handler(
     res.status(500).json(error);
   }
 }
-

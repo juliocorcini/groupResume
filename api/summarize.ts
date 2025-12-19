@@ -1,14 +1,46 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getChat } from '../src/services/store.js';
-import { getMessagesForDate } from '../src/services/parser.js';
-import { chunkMessages, formatChunkForAI } from '../src/services/chunker.js';
-import { generateSummary, mergeSummaries } from '../src/services/groq.js';
-import type { SummarizeRequest, SummarizeResponse, ErrorResponse, SummaryLevel, PrivacyMode } from '../src/types/index.js';
+import Groq from 'groq-sdk';
+import type { ErrorResponse, SummaryLevel, PrivacyMode } from '../src/types/index.js';
+
+interface ParsedMessage {
+  date: string;
+  time: string;
+  sender: string;
+  content: string;
+  isMedia: boolean;
+}
+
+interface SummarizeRequestBody {
+  messages: ParsedMessage[];
+  level: SummaryLevel;
+  privacy: PrivacyMode;
+  date: string;
+}
+
+// Initialize Groq client
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+const MODEL = 'llama-3.1-8b-instant';
+
+const LEVEL_CONFIGS: Record<SummaryLevel, { name: string; maxTokens: number; prompt: string }> = {
+  1: { name: 'Flash', maxTokens: 100, prompt: 'Faça um resumo ULTRA-CURTO em apenas 1-2 frases.' },
+  2: { name: 'Resumido', maxTokens: 300, prompt: 'Faça um resumo CURTO com parágrafos breves.' },
+  3: { name: 'Padrão', maxTokens: 500, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos.' },
+  4: { name: 'Completo', maxTokens: 800, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
+};
+
+const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
+  'anonymous': 'NÃO mencione nomes de pessoas ou números de telefone. Use termos como "o grupo discutiu", "alguém mencionou".',
+  'with-names': 'Mencione os nomes das pessoas quando relevante para o contexto.',
+  'smart': 'Mencione nomes APENAS para contribuições muito importantes. Evite números de telefone.'
+};
 
 /**
  * POST /api/summarize
  * 
- * Generates a summary for a specific date
+ * Receives messages directly from client and generates summary
  */
 export default async function handler(
   req: VercelRequest,
@@ -36,100 +68,71 @@ export default async function handler(
   const startTime = Date.now();
 
   try {
-    const body = req.body as SummarizeRequest;
-    const { id, date, level, privacy } = body;
+    const body = req.body as SummarizeRequestBody;
+    const { messages, level = 3, privacy = 'smart', date } = body;
 
-    // Validate request
-    if (!id || !date) {
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
       const error: ErrorResponse = { 
-        error: 'Missing required fields: id and date', 
-        code: 'MISSING_FIELDS' 
+        error: 'No messages provided', 
+        code: 'NO_MESSAGES' 
       };
       res.status(400).json(error);
       return;
     }
 
-    // Validate level
+    // Validate level and privacy
     const summaryLevel: SummaryLevel = ([1, 2, 3, 4].includes(level) ? level : 3) as SummaryLevel;
-    
-    // Validate privacy
-    const privacyMode: PrivacyMode = ['anonymous', 'with-names', 'smart'].includes(privacy) 
-      ? privacy 
-      : 'smart';
-
-    // Get chat from store
-    const chat = getChat(id);
-    
-    if (!chat) {
-      const error: ErrorResponse = { 
-        error: 'Chat not found. It may have expired. Please upload the file again.', 
-        code: 'NOT_FOUND' 
-      };
-      res.status(404).json(error);
-      return;
-    }
-
-    // Get messages for the selected date
-    const messages = getMessagesForDate(chat.messages, chat.dateIndex, date);
-
-    if (messages.length === 0) {
-      const error: ErrorResponse = { 
-        error: 'No messages found for this date', 
-        code: 'NO_MESSAGES_FOR_DATE' 
-      };
-      res.status(404).json(error);
-      return;
-    }
+    const privacyMode: PrivacyMode = ['anonymous', 'with-names', 'smart'].includes(privacy) ? privacy : 'smart';
 
     // Get unique participants
     const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
 
-    // Determine if names should be included based on privacy mode
+    // Format messages for AI
     const includeNames = privacyMode !== 'anonymous';
+    const messagesText = messages
+      .filter(msg => msg.sender !== '__system__')
+      .map(msg => {
+        if (msg.isMedia) {
+          return includeNames ? `[${msg.time}] ${msg.sender}: [mídia]` : `[${msg.time}] [mídia]`;
+        }
+        return includeNames ? `[${msg.time}] ${msg.sender}: ${msg.content}` : `[${msg.time}] ${msg.content}`;
+      })
+      .join('\n');
 
-    // Chunk messages if necessary
-    const chunks = chunkMessages(messages);
+    // Build prompt
+    const config = LEVEL_CONFIGS[summaryLevel];
+    const privacyNote = PRIVACY_INSTRUCTIONS[privacyMode];
 
-    let finalSummary: string;
-    let totalTokens = 0;
+    const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp em português brasileiro.
+${config.prompt}
+${privacyNote}
+Organize o resumo por temas/assuntos quando apropriado.`;
 
-    if (chunks.length === 1) {
-      // Single chunk - direct summarization
-      const text = formatChunkForAI(chunks[0], 0, 1, includeNames);
-      const result = await generateSummary(text, summaryLevel, privacyMode);
-      finalSummary = result.summary;
-      totalTokens = result.tokensUsed;
-    } else {
-      // Multiple chunks - summarize each, then merge
-      const partialSummaries: string[] = [];
+    // Call Groq API
+    const completion = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Resuma esta conversa do grupo:\n\n${messagesText}` }
+      ],
+      max_tokens: config.maxTokens,
+      temperature: 0.3,
+    });
 
-      for (let i = 0; i < chunks.length; i++) {
-        const text = formatChunkForAI(chunks[i], i, chunks.length, includeNames);
-        const result = await generateSummary(text, summaryLevel, privacyMode, true);
-        partialSummaries.push(result.summary);
-        totalTokens += result.tokensUsed;
-      }
-
-      // Merge all partial summaries
-      const mergeResult = await mergeSummaries(partialSummaries, summaryLevel, privacyMode);
-      finalSummary = mergeResult.summary;
-      totalTokens += mergeResult.tokensUsed;
-    }
-
+    const summary = completion.choices[0]?.message?.content || '';
+    const tokensUsed = completion.usage?.total_tokens || 0;
     const processingTime = Date.now() - startTime;
 
-    const response: SummarizeResponse = {
-      summary: finalSummary,
+    res.status(200).json({
+      summary,
       stats: {
         totalMessages: messages.length,
         participants: participants.size,
-        tokensUsed: totalTokens,
-        chunks: chunks.length,
+        tokensUsed,
+        chunks: 1,
         processingTime
       }
-    };
-
-    res.status(200).json(response);
+    });
 
   } catch (err) {
     console.error('Summarize error:', err);
@@ -151,4 +154,3 @@ export default async function handler(
     res.status(500).json(error);
   }
 }
-

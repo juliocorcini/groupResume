@@ -10,6 +10,7 @@ import { dirname, join } from 'path';
 import formidable from 'formidable';
 import { readFile } from 'fs/promises';
 import dotenv from 'dotenv';
+import Groq from 'groq-sdk';
 
 // Load environment variables
 dotenv.config();
@@ -20,16 +21,15 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = 3000;
 
-// In-memory store for parsed chats
-const STORE = new Map();
-const CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
+// Initialize Groq
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Serve static files
 app.use(express.static(join(__dirname, 'public')));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // ==============================================
-// Parser functions (inline for dev server)
+// Parser functions
 // ==============================================
 
 const MESSAGE_REGEX = /^(\d{2}\/\d{2}\/\d{4}) (\d{2}:\d{2}) - ([^:]+): (.*)$/;
@@ -41,140 +41,14 @@ function convertDate(brDate) {
 
 function isMediaMessage(content) {
   const mediaPatterns = ['<mídia oculta>', '<media omitted>', 'imagem ocultada'];
-  const lowerContent = content.toLowerCase();
-  return mediaPatterns.some(pattern => lowerContent.includes(pattern));
-}
-
-function parseWhatsAppChat(fileContent) {
-  const lines = fileContent.split('\n');
-  const messages = [];
-  let currentMessage = null;
-
-  for (const line of lines) {
-    if (!line.trim() && !currentMessage) continue;
-
-    const messageMatch = line.match(MESSAGE_REGEX);
-    
-    if (messageMatch) {
-      if (currentMessage) {
-        messages.push(currentMessage);
-      }
-
-      const [, brDate, time, sender, content] = messageMatch;
-      currentMessage = {
-        date: convertDate(brDate),
-        time,
-        sender: sender.trim(),
-        content: content,
-        isMedia: isMediaMessage(content),
-        rawLine: line
-      };
-    } else if (currentMessage && line.trim()) {
-      currentMessage.content += '\n' + line;
-      currentMessage.rawLine += '\n' + line;
-    }
-  }
-
-  if (currentMessage) {
-    messages.push(currentMessage);
-  }
-
-  return messages;
-}
-
-function parseAndIndex(fileContent) {
-  const messages = parseWhatsAppChat(fileContent);
-  const dateIndex = new Map();
-
-  messages.forEach((msg, index) => {
-    const indices = dateIndex.get(msg.date) || [];
-    indices.push(index);
-    dateIndex.set(msg.date, indices);
-  });
-
-  return { messages, dateIndex };
-}
-
-function extractDateInfo(messages, dateIndex) {
-  const dateInfos = [];
-
-  for (const [date, indices] of dateIndex.entries()) {
-    const senders = new Set();
-    let preview = '';
-
-    for (const idx of indices) {
-      const msg = messages[idx];
-      if (msg.sender !== '__system__') {
-        senders.add(msg.sender);
-        if (!preview && !msg.isMedia) {
-          preview = msg.content.substring(0, 50);
-          if (msg.content.length > 50) preview += '...';
-        }
-      }
-    }
-
-    dateInfos.push({
-      date,
-      messageCount: indices.length,
-      participants: senders.size,
-      preview
-    });
-  }
-
-  dateInfos.sort((a, b) => b.date.localeCompare(a.date));
-  return dateInfos;
-}
-
-// ==============================================
-// Groq integration
-// ==============================================
-
-async function generateSummaryWithGroq(messagesText, level, privacy) {
-  const Groq = (await import('groq-sdk')).default;
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-  const levelConfigs = {
-    1: { name: 'Flash', maxTokens: 100, prompt: 'Faça um resumo ULTRA-CURTO em apenas 1-2 frases.' },
-    2: { name: 'Resumido', maxTokens: 300, prompt: 'Faça um resumo CURTO com parágrafos breves.' },
-    3: { name: 'Padrão', maxTokens: 500, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos.' },
-    4: { name: 'Completo', maxTokens: 800, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
-  };
-
-  const privacyInstructions = {
-    'anonymous': 'NÃO mencione nomes. Use termos como "o grupo discutiu".',
-    'with-names': 'Mencione os nomes das pessoas quando relevante.',
-    'smart': 'Mencione nomes APENAS para contribuições muito importantes.'
-  };
-
-  const config = levelConfigs[level] || levelConfigs[3];
-  const privacyNote = privacyInstructions[privacy] || privacyInstructions['smart'];
-
-  const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp.
-${config.prompt}
-${privacyNote}
-Responda em português brasileiro.`;
-
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Resuma esta conversa:\n\n${messagesText}` }
-    ],
-    max_tokens: config.maxTokens,
-    temperature: 0.3,
-  });
-
-  return {
-    summary: completion.choices[0]?.message?.content || '',
-    tokensUsed: completion.usage?.total_tokens || 0
-  };
+  return mediaPatterns.some(pattern => content.toLowerCase().includes(pattern));
 }
 
 // ==============================================
 // API Routes
 // ==============================================
 
-// Upload endpoint
+// Upload endpoint - returns all data to client
 app.post('/api/upload', async (req, res) => {
   try {
     const form = formidable({ maxFileSize: 10 * 1024 * 1024 });
@@ -191,28 +65,68 @@ app.post('/api/upload', async (req, res) => {
       return res.status(400).json({ error: 'File is empty', code: 'EMPTY_FILE' });
     }
 
-    const { messages, dateIndex } = parseAndIndex(fileContent);
+    // Parse messages
+    const lines = fileContent.split('\n');
+    const messagesByDate = {};
+    let currentMessage = null;
 
-    if (messages.length === 0) {
+    for (const line of lines) {
+      if (!line.trim() && !currentMessage) continue;
+
+      const messageMatch = line.match(MESSAGE_REGEX);
+      
+      if (messageMatch) {
+        if (currentMessage) {
+          if (!messagesByDate[currentMessage.date]) {
+            messagesByDate[currentMessage.date] = [];
+          }
+          messagesByDate[currentMessage.date].push(currentMessage);
+        }
+
+        const [, brDate, time, sender, content] = messageMatch;
+        currentMessage = {
+          date: convertDate(brDate),
+          time,
+          sender: sender.trim(),
+          content: content,
+          isMedia: isMediaMessage(content)
+        };
+      } else if (currentMessage && line.trim()) {
+        currentMessage.content += '\n' + line;
+      }
+    }
+
+    if (currentMessage) {
+      if (!messagesByDate[currentMessage.date]) {
+        messagesByDate[currentMessage.date] = [];
+      }
+      messagesByDate[currentMessage.date].push(currentMessage);
+    }
+
+    const totalMessages = Object.values(messagesByDate).reduce((sum, msgs) => sum + msgs.length, 0);
+    
+    if (totalMessages === 0) {
       return res.status(400).json({ error: 'No messages found', code: 'NO_MESSAGES' });
     }
 
-    const allDates = extractDateInfo(messages, dateIndex);
-    const recentDates = allDates.slice(0, 3);
-    
-    const id = Math.random().toString(36).substring(2, 15);
-    STORE.set(id, { id, messages, dateIndex, dates: allDates, uploadedAt: Date.now() });
-
-    // Cleanup old entries
-    setTimeout(() => STORE.delete(id), CLEANUP_INTERVAL);
+    // Build date info
+    const dates = Object.entries(messagesByDate)
+      .map(([date, messages]) => {
+        const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
+        const firstMsg = messages.find(m => !m.isMedia && m.sender !== '__system__');
+        const preview = firstMsg ? firstMsg.content.substring(0, 50) + (firstMsg.content.length > 50 ? '...' : '') : '';
+        
+        return { date, messageCount: messages.length, participants: participants.size, preview };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     res.json({
-      id,
-      recentDates,
-      totalDays: allDates.length,
-      oldestDate: allDates[allDates.length - 1]?.date || '',
-      newestDate: allDates[0]?.date || '',
-      totalMessages: messages.length
+      messagesByDate,
+      dates,
+      totalMessages,
+      totalDays: dates.length,
+      oldestDate: dates[dates.length - 1]?.date || '',
+      newestDate: dates[0]?.date || ''
     });
 
   } catch (err) {
@@ -221,47 +135,17 @@ app.post('/api/upload', async (req, res) => {
   }
 });
 
-// Dates endpoint
-app.get('/api/dates', (req, res) => {
-  const { id, all } = req.query;
-
-  if (!id) {
-    return res.status(400).json({ error: 'Missing chat ID', code: 'MISSING_ID' });
-  }
-
-  const chat = STORE.get(id);
-  
-  if (!chat) {
-    return res.status(404).json({ error: 'Chat not found', code: 'NOT_FOUND' });
-  }
-
-  const dates = all === 'true' ? chat.dates : chat.dates.slice(0, 3);
-  res.json({ dates });
-});
-
-// Summarize endpoint
+// Summarize endpoint - receives messages directly
 app.post('/api/summarize', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const { id, date, level = 3, privacy = 'smart' } = req.body;
+    const { messages, level = 3, privacy = 'smart', date } = req.body;
 
-    if (!id || !date) {
-      return res.status(400).json({ error: 'Missing fields', code: 'MISSING_FIELDS' });
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'No messages provided', code: 'NO_MESSAGES' });
     }
 
-    const chat = STORE.get(id);
-    
-    if (!chat) {
-      return res.status(404).json({ error: 'Chat not found', code: 'NOT_FOUND' });
-    }
-
-    const indices = chat.dateIndex.get(date);
-    if (!indices || indices.length === 0) {
-      return res.status(404).json({ error: 'No messages for date', code: 'NO_MESSAGES' });
-    }
-
-    const messages = indices.map(i => chat.messages[i]);
     const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
     
     const includeNames = privacy !== 'anonymous';
@@ -275,14 +159,43 @@ app.post('/api/summarize', async (req, res) => {
       })
       .join('\n');
 
-    const result = await generateSummaryWithGroq(messagesText, level, privacy);
+    const levelConfigs = {
+      1: { maxTokens: 100, prompt: 'Faça um resumo ULTRA-CURTO em apenas 1-2 frases.' },
+      2: { maxTokens: 300, prompt: 'Faça um resumo CURTO com parágrafos breves.' },
+      3: { maxTokens: 500, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos.' },
+      4: { maxTokens: 800, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
+    };
+
+    const privacyInstructions = {
+      'anonymous': 'NÃO mencione nomes. Use termos como "o grupo discutiu".',
+      'with-names': 'Mencione os nomes das pessoas quando relevante.',
+      'smart': 'Mencione nomes APENAS para contribuições muito importantes.'
+    };
+
+    const config = levelConfigs[level] || levelConfigs[3];
+    const privacyNote = privacyInstructions[privacy] || privacyInstructions['smart'];
+
+    const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp em português brasileiro.
+${config.prompt}
+${privacyNote}
+Organize o resumo por temas/assuntos quando apropriado.`;
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Resuma esta conversa:\n\n${messagesText}` }
+      ],
+      max_tokens: config.maxTokens,
+      temperature: 0.3,
+    });
 
     res.json({
-      summary: result.summary,
+      summary: completion.choices[0]?.message?.content || '',
       stats: {
         totalMessages: messages.length,
         participants: participants.size,
-        tokensUsed: result.tokensUsed,
+        tokensUsed: completion.usage?.total_tokens || 0,
         chunks: 1,
         processingTime: Date.now() - startTime
       }
@@ -320,4 +233,3 @@ server.listen(PORT, () => {
    Upload a WhatsApp export file to get started.
   `);
 });
-

@@ -33,8 +33,8 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
-  // Skip API calls - always go to network
-  if (event.request.url.includes('/api/')) {
+  // Skip API calls and POST requests - always go to network
+  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
     return;
   }
 
@@ -44,8 +44,8 @@ self.addEventListener('fetch', (event) => {
         return response;
       }
       return fetch(event.request).then((networkResponse) => {
-        // Cache successful responses
-        if (networkResponse && networkResponse.status === 200) {
+        // Only cache GET requests with successful responses
+        if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
