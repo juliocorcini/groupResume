@@ -5,6 +5,8 @@
 // ==============================================
 // Constants
 // ==============================================
+const RATE_LIMIT_STORAGE_KEY = 'groq_rate_limit';
+
 const MODEL_LIMITS = {
   fast: 80,
   balanced: 120,
@@ -32,6 +34,235 @@ const MSGS_PER_DAY_SAMPLING = 300;
 
 // Group analysis chunk size (200 msgs = ~5K tokens, fits in 10s Vercel timeout)
 const ANALYSIS_CHUNK_SIZE = 200;
+
+// ==============================================
+// Rate Limit Management
+// ==============================================
+const rateLimitState = {
+  isActive: false,
+  endTime: null,
+  limitType: null, // 'TPM' (per minute) or 'TPD' (per day)
+  countdownInterval: null
+};
+
+// Parse wait time from error message (handles "7.39s", "6m47.2896s", "1h30m", etc)
+function parseWaitTime(errorMessage) {
+  // Try to find time patterns
+  const patterns = [
+    /(\d+)h(\d+)m(\d+\.?\d*)s/,  // 1h30m45.5s
+    /(\d+)h(\d+)m/,              // 1h30m
+    /(\d+)m(\d+\.?\d*)s/,        // 6m47.2896s
+    /(\d+\.?\d*)s/,              // 7.39s
+    /retry.after.*?(\d+)/i       // retry-after header (seconds)
+  ];
+  
+  for (const pattern of patterns) {
+    const match = errorMessage.match(pattern);
+    if (match) {
+      if (pattern.source.includes('h') && pattern.source.includes('m') && pattern.source.includes('s')) {
+        return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseFloat(match[3]);
+      } else if (pattern.source.includes('h') && pattern.source.includes('m')) {
+        return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60;
+      } else if (pattern.source.includes('m') && pattern.source.includes('s')) {
+        return parseInt(match[1]) * 60 + parseFloat(match[2]);
+      } else {
+        return parseFloat(match[1]);
+      }
+    }
+  }
+  
+  return 60; // Default 1 minute if can't parse
+}
+
+// Detect limit type from error
+function detectLimitType(errorMessage) {
+  if (errorMessage.includes('per day') || errorMessage.includes('TPD')) {
+    return 'TPD';
+  }
+  return 'TPM';
+}
+
+// Save rate limit to localStorage
+function saveRateLimit(endTime, limitType) {
+  localStorage.setItem(RATE_LIMIT_STORAGE_KEY, JSON.stringify({
+    endTime: endTime,
+    limitType: limitType
+  }));
+}
+
+// Load rate limit from localStorage
+function loadRateLimit() {
+  try {
+    const stored = localStorage.getItem(RATE_LIMIT_STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored);
+      if (data.endTime > Date.now()) {
+        return data;
+      } else {
+        localStorage.removeItem(RATE_LIMIT_STORAGE_KEY);
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Clear rate limit
+function clearRateLimit() {
+  localStorage.removeItem(RATE_LIMIT_STORAGE_KEY);
+  rateLimitState.isActive = false;
+  rateLimitState.endTime = null;
+  rateLimitState.limitType = null;
+  if (rateLimitState.countdownInterval) {
+    clearInterval(rateLimitState.countdownInterval);
+    rateLimitState.countdownInterval = null;
+  }
+  hideRateLimitBanner();
+}
+
+// Format remaining time
+function formatRemainingTime(seconds) {
+  if (seconds < 60) {
+    return `${Math.ceil(seconds)}s`;
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.ceil(seconds % 60);
+    return `${mins}m ${secs}s`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  }
+}
+
+// Show rate limit banner
+function showRateLimitBanner() {
+  let banner = document.getElementById('rate-limit-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'rate-limit-banner';
+    banner.className = 'rate-limit-banner';
+    document.body.prepend(banner);
+  }
+  banner.hidden = false;
+  updateRateLimitBanner();
+}
+
+// Hide rate limit banner
+function hideRateLimitBanner() {
+  const banner = document.getElementById('rate-limit-banner');
+  if (banner) {
+    banner.hidden = true;
+  }
+}
+
+// Update rate limit banner countdown
+function updateRateLimitBanner() {
+  const banner = document.getElementById('rate-limit-banner');
+  if (!banner || !rateLimitState.isActive) return;
+  
+  const remaining = Math.max(0, (rateLimitState.endTime - Date.now()) / 1000);
+  
+  if (remaining <= 0) {
+    clearRateLimit();
+    return;
+  }
+  
+  const limitLabel = rateLimitState.limitType === 'TPD' ? 'Limite DIÁRIO' : 'Limite por minuto';
+  const timeStr = formatRemainingTime(remaining);
+  
+  banner.innerHTML = `
+    <div class="rate-limit-banner-content">
+      <span class="rate-limit-banner-icon">⏳</span>
+      <span class="rate-limit-banner-text">
+        <strong>${limitLabel} atingido</strong> — Aguarde <span class="countdown">${timeStr}</span> para continuar
+      </span>
+    </div>
+  `;
+}
+
+// Start rate limit countdown
+function startRateLimitCountdown(waitSeconds, limitType) {
+  const endTime = Date.now() + (waitSeconds * 1000);
+  
+  rateLimitState.isActive = true;
+  rateLimitState.endTime = endTime;
+  rateLimitState.limitType = limitType;
+  
+  saveRateLimit(endTime, limitType);
+  showRateLimitBanner();
+  
+  // Clear existing interval
+  if (rateLimitState.countdownInterval) {
+    clearInterval(rateLimitState.countdownInterval);
+  }
+  
+  // Update every second
+  rateLimitState.countdownInterval = setInterval(() => {
+    const remaining = (rateLimitState.endTime - Date.now()) / 1000;
+    if (remaining <= 0) {
+      clearRateLimit();
+    } else {
+      updateRateLimitBanner();
+    }
+  }, 1000);
+}
+
+// Check if rate limit is active
+function isRateLimitActive() {
+  if (rateLimitState.isActive && rateLimitState.endTime > Date.now()) {
+    return true;
+  }
+  
+  // Check localStorage
+  const stored = loadRateLimit();
+  if (stored) {
+    rateLimitState.isActive = true;
+    rateLimitState.endTime = stored.endTime;
+    rateLimitState.limitType = stored.limitType;
+    showRateLimitBanner();
+    
+    // Start countdown if not already running
+    if (!rateLimitState.countdownInterval) {
+      rateLimitState.countdownInterval = setInterval(() => {
+        const remaining = (rateLimitState.endTime - Date.now()) / 1000;
+        if (remaining <= 0) {
+          clearRateLimit();
+        } else {
+          updateRateLimitBanner();
+        }
+      }, 1000);
+    }
+    
+    return true;
+  }
+  
+  return false;
+}
+
+// Wait for rate limit to clear (with countdown in UI)
+async function waitForRateLimit() {
+  return new Promise((resolve) => {
+    const checkInterval = setInterval(() => {
+      if (!isRateLimitActive()) {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 1000);
+  });
+}
+
+// Handle rate limit error - extract time, start countdown, and wait
+async function handleRateLimitError(error) {
+  const errorMessage = error.message || error.toString();
+  const waitSeconds = parseWaitTime(errorMessage);
+  const limitType = detectLimitType(errorMessage);
+  
+  console.log(`Rate limit detected: ${limitType}, wait ${waitSeconds}s`);
+  
+  startRateLimitCountdown(waitSeconds + 2, limitType); // +2s buffer
+  
+  await waitForRateLimit();
+}
 
 // ==============================================
 // State
@@ -185,6 +416,37 @@ async function summarizeChunk(messages, isPartial = false) {
 }
 
 async function mergeSummaries(summaries) {
+  // Helper to make merge request with rate limit handling
+  async function doMerge(batch) {
+    // Check if rate limit is active before request
+    if (isRateLimitActive()) {
+      updateProgressUI(0, 1, 'Aguardando limite de API...');
+      await waitForRateLimit();
+    }
+    
+    const res = await fetch('/api/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ summaries: batch, level: state.level, privacy: state.privacy })
+    });
+    
+    if (!res.ok) {
+      const errorData = await res.json();
+      const errorMsg = errorData.error || 'Erro ao combinar';
+      
+      // Check if rate limit error
+      if (res.status === 429 || errorMsg.includes('rate') || errorMsg.includes('limit')) {
+        await handleRateLimitError(new Error(errorMsg));
+        // Retry after waiting
+        return doMerge(batch);
+      }
+      
+      throw new Error(errorMsg);
+    }
+    
+    return res.json();
+  }
+  
   // If too many summaries, merge in batches of 3
   if (summaries.length > 4) {
     const batches = [];
@@ -198,13 +460,7 @@ async function mergeSummaries(summaries) {
       if (batch.length === 1) {
         firstPassResults.push(batch[0]);
       } else {
-        const res = await fetch('/api/merge', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ summaries: batch, level: state.level, privacy: state.privacy })
-        });
-        if (!res.ok) throw new Error((await res.json()).error || 'Erro ao combinar');
-        const data = await res.json();
+        const data = await doMerge(batch);
         firstPassResults.push(data.summary);
       }
     }
@@ -218,13 +474,7 @@ async function mergeSummaries(summaries) {
     summaries = firstPassResults;
   }
   
-  const res = await fetch('/api/merge', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ summaries, level: state.level, privacy: state.privacy })
-  });
-  if (!res.ok) throw new Error((await res.json()).error || 'Erro ao combinar');
-  return res.json();
+  return doMerge(summaries);
 }
 
 async function analyzeGroup(messages, style) {
@@ -611,7 +861,9 @@ async function startGroupAnalysis() {
         // Try with automatic retry on rate limit
         const result = await callWithRateLimitRetry(
           () => analyzeGroup(chunks[i], state.analysisStyle),
-          (waitSec) => showRateLimitWait(i + 1, chunks.length, waitSec),
+          (text) => updateProgressUI(i, chunks.length, text),
+          i + 1, // currentChunk
+          chunks.length, // totalChunks
           3 // max retries
         );
         
@@ -629,43 +881,65 @@ async function startGroupAnalysis() {
   }
 }
 
-// Show rate limit wait UI
-function showRateLimitWait(current, total, waitSec) {
+// Show rate limit wait UI in loading overlay
+function showRateLimitWaitInProgress(current, total) {
+  const remaining = rateLimitState.endTime ? Math.max(0, (rateLimitState.endTime - Date.now()) / 1000) : 0;
+  const timeStr = formatRemainingTime(remaining);
+  const limitLabel = rateLimitState.limitType === 'TPD' ? 'Limite DIÁRIO' : 'Limite de API';
+  
   elements.loadingText.innerHTML = `
     <div class="rate-limit-wait">
       <div class="rate-limit-icon">⏳</div>
-      <div class="rate-limit-title">Limite de API atingido</div>
-      <div class="rate-limit-msg">Aguardando ${waitSec} segundos para continuar...</div>
+      <div class="rate-limit-title">${limitLabel} atingido</div>
+      <div class="rate-limit-msg">Aguardando <span class="countdown-inline">${timeStr}</span></div>
       <div class="rate-limit-progress">Parte ${current} de ${total}</div>
-      <div class="rate-limit-hint">Isso é normal para análises grandes</div>
+      <div class="rate-limit-hint">${rateLimitState.limitType === 'TPD' ? 'Limite diário de tokens do Groq' : 'Isso é normal para análises grandes'}</div>
     </div>
   `;
 }
 
 // Smart rate limit handler - waits only the necessary time
-async function callWithRateLimitRetry(fn, onWait, maxRetries = 3) {
+async function callWithRateLimitRetry(fn, onProgress, currentChunk, totalChunks, maxRetries = 3) {
+  // Check if rate limit is already active
+  if (isRateLimitActive()) {
+    showRateLimitWaitInProgress(currentChunk, totalChunks);
+    await waitForRateLimit();
+  }
+  
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      const isRateLimit = err.message && (
-        err.message.includes('rate') || 
-        err.message.includes('429') ||
-        err.message.includes('Rate limit')
-      );
+      const errorMsg = err.message || err.toString();
+      const isRateLimit = errorMsg.includes('rate') || 
+                          errorMsg.includes('429') ||
+                          errorMsg.includes('Rate limit') ||
+                          errorMsg.includes('limit');
       
       if (!isRateLimit || attempt === maxRetries) {
         throw err;
       }
       
-      // Parse wait time from error: "Please try again in 7.39s"
-      const waitMatch = err.message.match(/(\d+\.?\d*)\s*s/);
-      const waitSec = waitMatch ? Math.ceil(parseFloat(waitMatch[1])) + 1 : 8;
+      // Handle rate limit with new system
+      console.log(`Rate limit hit (attempt ${attempt + 1}/${maxRetries}):`, errorMsg);
       
-      console.log(`Rate limit hit, waiting ${waitSec}s (attempt ${attempt + 1}/${maxRetries})`);
-      onWait(waitSec);
+      const waitSeconds = parseWaitTime(errorMsg);
+      const limitType = detectLimitType(errorMsg);
       
-      await new Promise(r => setTimeout(r, waitSec * 1000));
+      startRateLimitCountdown(waitSeconds + 2, limitType);
+      showRateLimitWaitInProgress(currentChunk, totalChunks);
+      
+      // Start updating the loading UI every second
+      const uiUpdateInterval = setInterval(() => {
+        if (rateLimitState.isActive) {
+          showRateLimitWaitInProgress(currentChunk, totalChunks);
+        } else {
+          clearInterval(uiUpdateInterval);
+        }
+      }, 1000);
+      
+      await waitForRateLimit();
+      clearInterval(uiUpdateInterval);
     }
   }
 }
@@ -1211,6 +1485,11 @@ if ('serviceWorker' in navigator) {
 }
 
 (async function init() {
+  // Check for existing rate limit on page load
+  if (isRateLimitActive()) {
+    console.log('Rate limit active from previous session');
+  }
+  
   const content = sessionStorage.getItem('sharedFileContent');
   const name = sessionStorage.getItem('sharedFileName');
   if (content && name) {

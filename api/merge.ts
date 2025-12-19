@@ -83,12 +83,21 @@ Combine em um resumo único e coeso. Use markdown.`;
       stats: { tokensUsed: completion.usage?.total_tokens || 0 }
     });
 
-  } catch (err) {
+  } catch (err: any) {
     console.error('Merge error:', err);
-    if (err instanceof Error && err.message.includes('rate')) {
-      res.status(429).json({ error: 'Limite de tokens. Aguarde.' });
+    
+    // Pass through full error message for rate limit (frontend needs wait time)
+    const errorMessage = err?.message || err?.toString() || '';
+    const isRateLimit = errorMessage.includes('rate') || 
+                        errorMessage.includes('429') || 
+                        errorMessage.includes('Rate limit') ||
+                        err?.status === 429;
+    
+    if (isRateLimit) {
+      res.status(429).json({ error: errorMessage || 'Rate limit reached' });
       return;
     }
+    
     res.status(500).json({ error: 'Falha ao combinar' });
   }
 }

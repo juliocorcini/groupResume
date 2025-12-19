@@ -161,11 +161,18 @@ Responda em português brasileiro.`;
       }
     });
 
-  } catch (err) {
+  } catch (err: any) {
     console.error('Analyze error:', err);
     
-    if (err instanceof Error && (err.message.includes('rate') || err.message.includes('429') || err.message.includes('413'))) {
-      res.status(429).json({ error: 'Limite de tokens. Aguarde um momento.' });
+    // Pass through full error message for rate limit (frontend needs wait time)
+    const errorMessage = err?.message || err?.toString() || '';
+    const isRateLimit = errorMessage.includes('rate') || 
+                        errorMessage.includes('429') || 
+                        errorMessage.includes('Rate limit') ||
+                        err?.status === 429;
+    
+    if (isRateLimit) {
+      res.status(429).json({ error: errorMessage || 'Rate limit reached' });
       return;
     }
 
