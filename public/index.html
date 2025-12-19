@@ -51,26 +51,188 @@
         </div>
       </section>
 
-      <!-- Step 2: Select Date -->
+      <!-- Step 2: Select Date or Analyze Group -->
       <section id="step-dates" class="step">
         <div class="dates-header">
-          <h2>Selecione uma data</h2>
+          <h2>O que deseja fazer?</h2>
           <p id="dates-info"></p>
         </div>
         
-        <div class="dates-container">
-          <div id="recent-dates" class="dates-list"></div>
-          
-          <button id="load-more-dates" class="btn-secondary" hidden>
-            Carregar mais datas
+        <!-- Action Choice -->
+        <div class="action-choice">
+          <button id="btn-day-summary" class="action-card selected">
+            <span class="action-icon">📅</span>
+            <strong>Resumir um dia</strong>
+            <small>Resumo detalhado de um dia específico</small>
           </button>
-          
-          <div id="all-dates" class="dates-list" hidden></div>
+          <button id="btn-group-analysis" class="action-card">
+            <span class="action-icon">🎭</span>
+            <strong>Analisar o grupo</strong>
+            <small>Descubra a "alma" do grupo</small>
+          </button>
+        </div>
+        
+        <!-- Day Selection (existing) -->
+        <div id="day-selection-container">
+          <h3 class="section-subtitle">Selecione uma data:</h3>
+          <div class="dates-container">
+            <div id="recent-dates" class="dates-list"></div>
+            
+            <button id="load-more-dates" class="btn-secondary" hidden>
+              Carregar mais datas
+            </button>
+            
+            <div id="all-dates" class="dates-list" hidden></div>
+          </div>
         </div>
 
         <button id="btn-back-upload" class="btn-link">
           ← Voltar e enviar outro arquivo
         </button>
+      </section>
+
+      <!-- Step: Group Analysis Setup -->
+      <section id="step-group-analysis" class="step">
+        <div class="analysis-header">
+          <h2>🎭 Análise do Grupo</h2>
+          <p>Descubra a personalidade e propósito do seu grupo</p>
+        </div>
+
+        <!-- Time Slider -->
+        <div class="option-group">
+          <label>Quanto tempo você pode esperar?</label>
+          <div class="time-slider-container">
+            <input type="range" id="time-slider" min="1" max="10" value="2" class="time-slider">
+            <div class="slider-labels">
+              <span id="time-label" class="time-label">2 minutos</span>
+              <span id="msgs-label" class="msgs-label">~6.000 mensagens</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Collection Mode -->
+        <div class="option-group">
+          <label>Modo de coleta</label>
+          <div class="mode-comparison">
+            <label class="mode-option selected" data-mode="complete">
+              <input type="radio" name="collection-mode" value="complete" checked>
+              <div class="mode-visual">
+                <div class="mode-bar complete"></div>
+              </div>
+              <strong>📚 Completo</strong>
+              <ul class="mode-pros">
+                <li>✓ Análise completa</li>
+                <li>✓ Nenhum assunto perdido</li>
+              </ul>
+              <ul class="mode-cons">
+                <li>✗ Menos dias</li>
+              </ul>
+              <div class="mode-estimate" id="complete-estimate">~5 dias completos</div>
+            </label>
+            
+            <label class="mode-option" data-mode="sampling">
+              <input type="radio" name="collection-mode" value="sampling">
+              <div class="mode-visual">
+                <div class="mode-bar sampling"></div>
+              </div>
+              <strong>🎯 Amostragem Inteligente</strong>
+              <ul class="mode-pros">
+                <li>✓ Cobre muito mais dias</li>
+                <li>✓ Visão ampla do grupo</li>
+              </ul>
+              <ul class="mode-cons">
+                <li>✗ Pode perder detalhes</li>
+              </ul>
+              <div class="mode-estimate" id="sampling-estimate">~20 dias (trechos)</div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Days Selection -->
+        <div class="option-group">
+          <label>Selecione os dias para análise:</label>
+          <div class="days-limit-bar">
+            <div class="limit-progress">
+              <div class="limit-fill" id="limit-fill"></div>
+            </div>
+            <span id="limit-text">0 / 6.000 mensagens</span>
+          </div>
+          <div id="days-checklist" class="days-checklist"></div>
+        </div>
+
+        <!-- Output Style -->
+        <div class="option-group">
+          <label>Estilo da análise</label>
+          <div class="radio-cards style-cards" id="style-options">
+            <label class="radio-card selected">
+              <input type="radio" name="analysis-style" value="roast" checked>
+              <span class="card-content">
+                <strong>🔥 Roast do Grupo</strong>
+                <small>Análise irônica e engraçada</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="analysis-style" value="personality">
+              <span class="card-content">
+                <strong>🧠 Perfil de Personalidade</strong>
+                <small>Como se o grupo fosse uma pessoa</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="analysis-style" value="report">
+              <span class="card-content">
+                <strong>📊 Relatório Divertido</strong>
+                <small>Estatísticas com humor</small>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="options-actions">
+          <button id="btn-back-from-analysis" class="btn-secondary">← Voltar</button>
+          <button id="btn-start-analysis" class="btn-primary">Analisar Grupo 🎭</button>
+        </div>
+      </section>
+
+      <!-- Step: Group Analysis Result -->
+      <section id="step-group-result" class="step">
+        <div class="result-header">
+          <h2>🎭 Análise do Grupo</h2>
+          <p id="analysis-days-info"></p>
+        </div>
+
+        <div class="result-content">
+          <div id="analysis-text" class="summary-text"></div>
+          
+          <!-- Extra Stats -->
+          <div id="group-stats" class="group-stats">
+            <div class="stat-section">
+              <h3>🗣️ Quem mais fala</h3>
+              <div id="top-talkers" class="top-talkers"></div>
+            </div>
+            
+            <div class="stat-section">
+              <h3>⏰ Horários mais ativos</h3>
+              <div id="activity-chart" class="activity-chart"></div>
+            </div>
+            
+            <div class="stat-section">
+              <h3>😀 Emojis favoritos</h3>
+              <div id="top-emojis" class="top-emojis"></div>
+            </div>
+            
+            <div class="stat-section vibe-section">
+              <h3>✨ Vibe Score</h3>
+              <div id="vibe-score" class="vibe-score"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-actions">
+          <button id="btn-copy-analysis" class="btn-secondary">📋 Copiar</button>
+          <button id="btn-share-analysis" class="btn-secondary" hidden>📤 Compartilhar</button>
+          <button id="btn-new-analysis" class="btn-primary">Nova Análise</button>
+        </div>
       </section>
 
       <!-- Step 3: Options -->
