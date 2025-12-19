@@ -20,9 +20,9 @@ interface AnalyzeRequestBody {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Using the best model for analysis
-const MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
-const MAX_MESSAGES = 250;
+// Use FAST model to avoid Vercel 10s timeout
+const MODEL = 'llama-3.1-8b-instant';
+const MAX_MESSAGES = 150; // Smaller chunks for faster response
 
 const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
   'anonymous': 'NÃO mencione nomes de pessoas. Use termos como "os participantes", "alguém", etc.',
@@ -33,52 +33,38 @@ const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
 const STYLE_PROMPTS: Record<AnalysisStyle, { system: string; maxTokens: number }> = {
   roast: {
     system: `Você é um comediante brasileiro fazendo um "roast" amigável de um grupo de WhatsApp.
-Analise as mensagens e crie uma análise ENGRAÇADA e IRÔNICA sobre o grupo.
+Crie uma análise ENGRAÇADA e IRÔNICA incluindo:
+- Título criativo para o grupo
+- Descrição irônica do que o grupo representa
+- Os "tipos" de pessoas (o que manda áudio, o sumido, etc)
+- Assuntos mais bizarros
 
-Sua análise deve incluir:
-1. Um título criativo e engraçado para o grupo
-2. Uma descrição irônica do que o grupo representa
-3. Os "tipos" de pessoas no grupo (o que sempre manda áudio, o sumido, etc)
-4. Os assuntos mais bizarros/engraçados que aparecem
-5. Uma "previsão" cômica do futuro do grupo
-
-Use humor brasileiro, gírias, e seja criativo! Não seja ofensivo, apenas engraçado.
-Use markdown para formatar. Seja MUITO engraçado!`,
-    maxTokens: 800
+Use humor brasileiro e gírias. Seja engraçado mas não ofensivo. Markdown.`,
+    maxTokens: 400
   },
   
   personality: {
-    system: `Você é um psicólogo/astrólogo analisando a "personalidade" de um grupo de WhatsApp como se fosse uma pessoa.
-Analise as mensagens e descreva o grupo como se fosse um ser humano com personalidade própria.
+    system: `Você analisa a "personalidade" de um grupo de WhatsApp como se fosse uma pessoa.
+Inclua:
+- Nome e "signo" criativo do grupo
+- Traços de personalidade
+- O que deixa o grupo feliz/irritado
+- Uma frase que define o grupo
 
-Sua análise deve incluir:
-1. Nome e "signo" do grupo (invente um signo criativo)
-2. Traços de personalidade dominantes
-3. Como o "grupo-pessoa" se comporta em diferentes situações
-4. Pontos fortes e "áreas de crescimento"
-5. O que deixa o grupo feliz/irritado
-6. Compatibilidade com outros tipos de grupos
-7. Uma frase que define o grupo
-
-Seja criativo e use analogias interessantes! Use markdown para formatar.`,
-    maxTokens: 800
+Seja criativo! Use markdown.`,
+    maxTokens: 400
   },
   
   report: {
-    system: `Você é um analista de dados com senso de humor criando um "relatório anual" de um grupo de WhatsApp.
-Analise as mensagens e crie um relatório divertido com estatísticas (inventadas com base no conteúdo).
+    system: `Você cria um "relatório" divertido de um grupo de WhatsApp.
+Inclua:
+- Estatísticas engraçadas inventadas
+- Prêmios irônicos para participantes
+- Palavras/emojis que definem o grupo
+- Previsões cômicas
 
-Sua análise deve incluir:
-1. "Estatísticas" engraçadas (ex: "127 vezes alguém mandou 'kkk'")
-2. Prêmios irônicos para os participantes
-3. Os "maiores hits" de conversas do grupo
-4. Palavras/emojis que definem o grupo
-5. Momentos marcantes (baseado nas conversas)
-6. "Tendências" observadas
-7. Previsões para o próximo ano
-
-Use formato de relatório com seções, mas seja ENGRAÇADO! Use markdown.`,
-    maxTokens: 800
+Seja ENGRAÇADO! Use markdown.`,
+    maxTokens: 400
   }
 };
 

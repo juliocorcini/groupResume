@@ -587,11 +587,11 @@ async function startGroupAnalysis() {
   try {
     showLoading('Analisando o grupo...');
     
-    // Process in chunks if needed
-    const chunkSize = MODEL_LIMITS[state.model];
+    // Process in smaller chunks for analysis (150 msgs to avoid timeout)
+    const ANALYSIS_CHUNK_SIZE = 150;
     const chunks = [];
-    for (let i = 0; i < allMessages.length; i += chunkSize) {
-      chunks.push(allMessages.slice(i, i + chunkSize));
+    for (let i = 0; i < allMessages.length; i += ANALYSIS_CHUNK_SIZE) {
+      chunks.push(allMessages.slice(i, i + ANALYSIS_CHUNK_SIZE));
     }
     
     if (chunks.length === 1) {
