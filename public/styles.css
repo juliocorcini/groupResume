@@ -120,6 +120,21 @@ a:hover {
   font-size: 0.8rem;
 }
 
+.footer-info {
+  margin-bottom: var(--spacing-xs);
+}
+
+.footer-credits {
+  margin-top: var(--spacing-sm);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.footer-credits strong {
+  color: var(--accent-secondary);
+  font-weight: 600;
+}
+
 /* ==============================================
    Steps
    ============================================== */
@@ -592,17 +607,14 @@ a:hover {
    Token Bar
    ============================================== */
 .token-bar {
-  position: fixed;
-  bottom: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: calc(100% - 32px);
-  max-width: 568px;
+  position: relative;
+  width: 100%;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   padding: var(--spacing-sm) var(--spacing-md);
-  z-index: 50;
+  margin-bottom: var(--spacing-md);
+  overflow: hidden;
 }
 
 .token-fill {
