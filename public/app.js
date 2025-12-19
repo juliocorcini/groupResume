@@ -30,6 +30,12 @@ const TIME_TO_MSGS = {
 // Sampling: messages per day in sampling mode
 const MSGS_PER_DAY_SAMPLING = 300;
 
+// Rate limiting for group analysis (llama-4-scout = 30K TPM)
+const ANALYSIS_TPM_LIMIT = 30000;
+const TOKENS_PER_MSG_ESTIMATE = 25;
+const ANALYSIS_CHUNK_SIZE = 200; // ~5K tokens per chunk
+const SAFE_CHUNKS_PER_MINUTE = 5; // 5 chunks * 5K = 25K tokens (safe buffer)
+
 // ==============================================
 // State
 // ==============================================
@@ -587,8 +593,7 @@ async function startGroupAnalysis() {
   try {
     showLoading('Analisando o grupo...');
     
-    // Process in smaller chunks for analysis (150 msgs to avoid timeout)
-    const ANALYSIS_CHUNK_SIZE = 150;
+    // Process in chunks (200 msgs = ~5K tokens, fits in 10s timeout)
     const chunks = [];
     for (let i = 0; i < allMessages.length; i += ANALYSIS_CHUNK_SIZE) {
       chunks.push(allMessages.slice(i, i + ANALYSIS_CHUNK_SIZE));
@@ -599,22 +604,60 @@ async function startGroupAnalysis() {
       const result = await analyzeGroup(chunks[0], state.analysisStyle);
       displayGroupResult(result.analysis, result.vibeScore, stats);
     } else {
-      // Multiple chunks - process and merge
+      // Multiple chunks with rate limiting
       showProgressUI(chunks.length);
       const summaries = [];
+      let chunksInCurrentMinute = 0;
+      let minuteStartTime = Date.now();
       
       for (let i = 0; i < chunks.length; i++) {
+        // Rate limit check: max 5 chunks per minute (25K of 30K TPM)
+        chunksInCurrentMinute++;
+        
+        if (chunksInCurrentMinute > SAFE_CHUNKS_PER_MINUTE) {
+          const elapsed = Date.now() - minuteStartTime;
+          const waitTime = Math.max(0, 60000 - elapsed + 2000); // Wait until minute + 2s buffer
+          
+          if (waitTime > 0) {
+            updateProgressUI(i, chunks.length, `Aguardando limite de API (${Math.ceil(waitTime/1000)}s)...`);
+            await new Promise(r => setTimeout(r, waitTime));
+          }
+          
+          // Reset counter for new minute
+          chunksInCurrentMinute = 1;
+          minuteStartTime = Date.now();
+        }
+        
         updateProgressUI(i, chunks.length, `Analisando parte ${i + 1}/${chunks.length}...`);
-        const result = await analyzeGroup(chunks[i], state.analysisStyle);
-        summaries.push(result.analysis);
+        
+        try {
+          const result = await analyzeGroup(chunks[i], state.analysisStyle);
+          summaries.push(result.analysis);
+        } catch (err) {
+          // If rate limit error, wait and retry
+          if (err.message && err.message.includes('rate')) {
+            const waitMatch = err.message.match(/(\d+\.?\d*)s/);
+            const waitTime = waitMatch ? parseFloat(waitMatch[1]) * 1000 + 2000 : 15000;
+            updateProgressUI(i, chunks.length, `Limite atingido, aguardando ${Math.ceil(waitTime/1000)}s...`);
+            await new Promise(r => setTimeout(r, waitTime));
+            
+            // Retry
+            const result = await analyzeGroup(chunks[i], state.analysisStyle);
+            summaries.push(result.analysis);
+            
+            // Reset rate limit tracking
+            chunksInCurrentMinute = 1;
+            minuteStartTime = Date.now();
+          } else {
+            throw err;
+          }
+        }
       }
       
       updateProgressUI(chunks.length, chunks.length, 'Combinando análises...');
       const mergeResult = await mergeSummaries(summaries);
       
-      // Get vibe score from last chunk (or calculate average)
-      const lastResult = await analyzeGroup(chunks[chunks.length - 1], state.analysisStyle);
-      displayGroupResult(mergeResult.summary, lastResult.vibeScore, stats);
+      displayGroupResult(mergeResult.summary, 7, stats); // Default vibe score
     }
   } catch (err) {
     hideLoading();

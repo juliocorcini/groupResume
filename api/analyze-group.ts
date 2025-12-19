@@ -20,9 +20,9 @@ interface AnalyzeRequestBody {
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Use FAST model to avoid Vercel 10s timeout
-const MODEL = 'llama-3.1-8b-instant';
-const MAX_MESSAGES = 150; // Smaller chunks for faster response
+// Use scout model (30K TPM) - frontend handles rate limiting
+const MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const MAX_MESSAGES = 200; // ~5K tokens per chunk, fits in 10s timeout
 
 const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
   'anonymous': 'NÃO mencione nomes de pessoas. Use termos como "os participantes", "alguém", etc.',
