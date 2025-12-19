@@ -6,10 +6,12 @@
 // ==============================================
 // Constants
 // ==============================================
-const GROQ_TPM_LIMIT = 6000; // Tokens per minute limit
+// Using llama-4-scout with 30K TPM for large conversations
+const GROQ_TPM_LIMIT = 30000; // Tokens per minute limit (llama-4-scout)
 const TOKENS_PER_MESSAGE = 50; // Estimated tokens per message
-const SAMPLE_SIZE = 150; // Messages for quick sampling
-const CHUNK_SIZE = 100; // Messages per chunk for full processing
+const SAMPLE_SIZE = 300; // Messages for quick sampling (can be larger now)
+const CHUNK_SIZE = 400; // Messages per chunk (30K TPM allows bigger chunks)
+const DIRECT_PROCESS_LIMIT = 500; // Process directly without modal if under this
 
 // ==============================================
 // State
@@ -336,18 +338,26 @@ async function startSummarization(mode) {
 
 async function processQuickMode(messages) {
   try {
-    showLoading('Gerando resumo rápido...');
+    showLoading('Gerando resumo...');
     
-    // Sample messages from throughout the day
-    const step = Math.max(1, Math.floor(messages.length / SAMPLE_SIZE));
-    const sampled = messages.filter((_, i) => i % step === 0).slice(0, SAMPLE_SIZE);
+    // With 30K TPM, we can process up to ~500 messages directly
+    // Only sample if there are way too many messages
+    let messagesToProcess = messages;
+    let sampled = false;
     
-    const result = await summarizeMessages(sampled, false);
+    if (messages.length > 600) {
+      // Sample for very large conversations
+      const step = Math.max(1, Math.floor(messages.length / SAMPLE_SIZE));
+      messagesToProcess = messages.filter((_, i) => i % step === 0).slice(0, SAMPLE_SIZE);
+      sampled = true;
+    }
+    
+    const result = await summarizeMessages(messagesToProcess, false);
     
     updateTokensUsed(result.stats.tokensUsed);
     
-    const note = messages.length > SAMPLE_SIZE 
-      ? `\n\n---\n_📊 Resumo baseado em amostra de ${sampled.length} de ${messages.length} mensagens_`
+    const note = sampled 
+      ? `\n\n---\n_📊 Resumo baseado em amostra de ${messagesToProcess.length} de ${messages.length} mensagens_`
       : '';
     
     displayResult(result.summary + note, result.stats);
@@ -605,14 +615,12 @@ async function handleSummarize() {
     return;
   }
   
-  // Check if day has many messages
-  const estimatedTokens = estimateTokens(messages);
-  
-  if (estimatedTokens > GROQ_TPM_LIMIT || messages.length > 300) {
-    // Show mode selection modal
+  // With 30K TPM, we can process much more directly
+  // Only show modal for very large conversations (1000+ messages)
+  if (messages.length > 1000) {
     showModeModal(messages.length);
   } else {
-    // Direct processing
+    // Direct processing - works for most days now
     await startSummarization('quick');
   }
 }

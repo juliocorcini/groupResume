@@ -18,7 +18,19 @@ interface SummarizeRequestBody {
 }
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = 'mixtral-8x7b-32768';
+
+// Models with different TPM limits - choose based on message count
+const MODELS = {
+  small: 'llama-3.1-8b-instant',      // Fast, 6K TPM - for small conversations
+  medium: 'llama-3.3-70b-versatile',  // Better quality, 6K TPM
+  large: 'meta-llama/llama-4-scout-17b-16e-instruct', // 30K TPM - for large conversations
+};
+
+function selectModel(messageCount: number): string {
+  if (messageCount > 500) return MODELS.large;  // 30K TPM allows big batches
+  if (messageCount > 100) return MODELS.medium; // Better quality for medium
+  return MODELS.small; // Fast for small conversations
+}
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
   1: { maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em 2-3 frases dos principais tópicos.' },
@@ -79,8 +91,10 @@ ${privacyNote}
 ${isPartial ? 'Este é apenas uma PARTE da conversa. Faça um resumo desta parte.' : ''}
 Organize por temas/assuntos quando apropriado. Use markdown para formatação.`;
 
+    const model = selectModel(messages.length);
+    
     const completion = await groq.chat.completions.create({
-      model: MODEL,
+      model: model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Resuma esta conversa:\n\n${messagesText}` }

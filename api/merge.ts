@@ -9,7 +9,7 @@ interface MergeRequestBody {
 }
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = 'mixtral-8x7b-32768';
+const MODEL = 'llama-3.3-70b-versatile'; // Good quality for merging summaries
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
   1: { maxTokens: 200, prompt: 'Crie um resumo ULTRA-CURTO em 2-3 frases.' },
