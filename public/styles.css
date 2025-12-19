@@ -1,0 +1,617 @@
+/* ==============================================
+   CSS Variables & Theme
+   ============================================== */
+:root {
+  /* Colors - Dark theme inspired by terminal/code editors */
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary: #1a1a26;
+  --bg-hover: #22222e;
+  
+  --text-primary: #e4e4eb;
+  --text-secondary: #9494a8;
+  --text-muted: #5c5c70;
+  
+  --accent-primary: #6366f1;
+  --accent-secondary: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.3);
+  
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+  
+  --border-color: #2a2a3a;
+  --border-radius: 12px;
+  --border-radius-sm: 8px;
+  
+  /* Typography */
+  --font-sans: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* ==============================================
+   Reset & Base
+   ============================================== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+a {
+  color: var(--accent-secondary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--accent-primary);
+}
+
+/* ==============================================
+   Layout
+   ============================================== */
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: var(--spacing-md);
+}
+
+.header {
+  text-align: center;
+  padding: var(--spacing-xl) 0;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--text-primary), var(--accent-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header .subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin-top: var(--spacing-xs);
+}
+
+.main {
+  flex: 1;
+  position: relative;
+}
+
+.footer {
+  text-align: center;
+  padding: var(--spacing-lg) 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* ==============================================
+   Steps
+   ============================================== */
+.step {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+
+.step.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==============================================
+   Upload Area
+   ============================================== */
+.upload-area {
+  border: 2px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-xxl) var(--spacing-lg);
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  background: var(--bg-secondary);
+}
+
+.upload-area:hover,
+.upload-area.dragover {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 30px var(--accent-glow);
+}
+
+.upload-icon {
+  font-size: 3rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.upload-area h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: var(--spacing-xs);
+}
+
+.upload-area p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.upload-hint {
+  margin-top: var(--spacing-md);
+  color: var(--text-muted) !important;
+  font-size: 0.85rem !important;
+}
+
+/* How-to section */
+.how-to {
+  margin-top: var(--spacing-xl);
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
+}
+
+.how-to h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.how-to ol {
+  padding-left: var(--spacing-lg);
+  color: var(--text-secondary);
+}
+
+.how-to li {
+  margin-bottom: var(--spacing-sm);
+  font-size: 0.9rem;
+}
+
+/* ==============================================
+   Dates Section
+   ============================================== */
+.dates-header {
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.dates-header h2 {
+  font-size: 1.3rem;
+  margin-bottom: var(--spacing-xs);
+}
+
+.dates-header p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.dates-container {
+  margin-bottom: var(--spacing-lg);
+}
+
+.dates-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.date-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.date-card:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+}
+
+.date-card.selected {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.date-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.date-value {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.date-preview {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.date-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message-count {
+  font-size: 0.9rem;
+  color: var(--accent-secondary);
+  font-weight: 500;
+}
+
+.participant-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+#load-more-dates {
+  margin-top: var(--spacing-md);
+  width: 100%;
+}
+
+/* ==============================================
+   Options Section
+   ============================================== */
+.options-header {
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.options-header h2 {
+  font-size: 1.3rem;
+  margin-bottom: var(--spacing-xs);
+}
+
+.option-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.option-group > label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.radio-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.radio-card {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.radio-card:hover {
+  border-color: var(--text-muted);
+}
+
+.radio-card.selected {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+}
+
+.radio-card input {
+  display: none;
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.card-content strong {
+  font-size: 0.95rem;
+  margin-bottom: 2px;
+}
+
+.card-content small {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.options-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-xl);
+}
+
+.options-actions button {
+  flex: 1;
+}
+
+/* ==============================================
+   Result Section
+   ============================================== */
+.result-header {
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.result-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.summary-text {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.summary-text h2 {
+  font-size: 1.1rem;
+  color: var(--accent-secondary);
+  margin: var(--spacing-md) 0 var(--spacing-sm);
+}
+
+.summary-text h2:first-child {
+  margin-top: 0;
+}
+
+.summary-text p {
+  margin-bottom: var(--spacing-sm);
+}
+
+.summary-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+}
+
+.stat-value {
+  font-weight: 600;
+  color: var(--accent-secondary);
+}
+
+.stat-label {
+  color: var(--text-muted);
+}
+
+.result-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.result-actions button {
+  flex: 1;
+}
+
+/* ==============================================
+   Buttons
+   ============================================== */
+.btn-primary,
+.btn-secondary,
+.btn-link {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--border-radius-sm);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: none;
+}
+
+.btn-primary {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-secondary);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  border-color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.btn-link {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: var(--spacing-sm) 0;
+}
+
+.btn-link:hover {
+  color: var(--accent-secondary);
+}
+
+/* ==============================================
+   Loading
+   ============================================== */
+.loading {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.loading:not([hidden]) {
+  display: flex;
+}
+
+.loading-content {
+  text-align: center;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--bg-tertiary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto var(--spacing-md);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+#loading-text {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* ==============================================
+   Toast
+   ============================================== */
+.toast {
+  position: fixed;
+  bottom: var(--spacing-lg);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--border-color);
+  font-size: 0.9rem;
+  z-index: 200;
+  animation: slideUp 0.3s ease;
+}
+
+.toast.error {
+  border-color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.toast.success {
+  border-color: var(--success);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ==============================================
+   Responsive
+   ============================================== */
+@media (min-width: 640px) {
+  .radio-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  #privacy-options {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ==============================================
+   PWA Install Banner (optional)
+   ============================================== */
+.install-prompt {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
+  padding: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  z-index: 50;
+}
+
+.install-prompt p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.install-prompt button {
+  white-space: nowrap;
+}
+

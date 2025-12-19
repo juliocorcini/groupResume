@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#6366f1">
+  <meta name="description" content="Resuma conversas de grupos do WhatsApp usando IA. Faça upload do arquivo exportado e receba um resumo inteligente.">
+  
+  <title>Resumo de Grupo WhatsApp</title>
+  
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  
+  <!-- Preconnect to Groq API -->
+  <link rel="preconnect" href="https://api.groq.com">
+  
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <h1>💬 Resumo de Grupo</h1>
+      <p class="subtitle">Transforme centenas de mensagens em um resumo claro</p>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Step 1: Upload -->
+      <section id="step-upload" class="step active">
+        <div class="upload-area" id="upload-area">
+          <div class="upload-icon">📄</div>
+          <h2>Arraste o arquivo aqui</h2>
+          <p>ou clique para selecionar</p>
+          <p class="upload-hint">Arquivo .txt exportado do WhatsApp</p>
+          <input type="file" id="file-input" accept=".txt,text/plain" hidden>
+        </div>
+        
+        <div class="how-to">
+          <h3>Como exportar conversa do WhatsApp:</h3>
+          <ol>
+            <li>Abra o grupo no WhatsApp</li>
+            <li>Toque nos 3 pontos (⋮) → "Mais" → "Exportar conversa"</li>
+            <li>Escolha "Sem mídia"</li>
+            <li>Compartilhe ou salve o arquivo</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Step 2: Select Date -->
+      <section id="step-dates" class="step">
+        <div class="dates-header">
+          <h2>Selecione uma data</h2>
+          <p id="dates-info"></p>
+        </div>
+        
+        <div class="dates-container">
+          <div id="recent-dates" class="dates-list"></div>
+          
+          <button id="load-more-dates" class="btn-secondary" hidden>
+            Carregar mais datas
+          </button>
+          
+          <div id="all-dates" class="dates-list" hidden></div>
+        </div>
+
+        <button id="btn-back-upload" class="btn-link">
+          ← Voltar e enviar outro arquivo
+        </button>
+      </section>
+
+      <!-- Step 3: Options -->
+      <section id="step-options" class="step">
+        <div class="options-header">
+          <h2>Opções do resumo</h2>
+          <p id="selected-date-info"></p>
+        </div>
+
+        <div class="option-group">
+          <label>Nível de detalhe</label>
+          <div class="radio-cards" id="level-options">
+            <label class="radio-card">
+              <input type="radio" name="level" value="1">
+              <span class="card-content">
+                <strong>⚡ Flash</strong>
+                <small>1-2 frases com os tópicos principais</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="level" value="2">
+              <span class="card-content">
+                <strong>📝 Resumido</strong>
+                <small>Parágrafos curtos por assunto</small>
+              </span>
+            </label>
+            <label class="radio-card selected">
+              <input type="radio" name="level" value="3" checked>
+              <span class="card-content">
+                <strong>📋 Padrão</strong>
+                <small>Resumo completo com contexto</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="level" value="4">
+              <span class="card-content">
+                <strong>📖 Completo</strong>
+                <small>Detalhado com quem falou o quê</small>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="option-group">
+          <label>Privacidade</label>
+          <div class="radio-cards" id="privacy-options">
+            <label class="radio-card">
+              <input type="radio" name="privacy" value="anonymous">
+              <span class="card-content">
+                <strong>🔒 Anônimo</strong>
+                <small>Sem nomes, só assuntos</small>
+              </span>
+            </label>
+            <label class="radio-card selected">
+              <input type="radio" name="privacy" value="smart" checked>
+              <span class="card-content">
+                <strong>🎯 Inteligente</strong>
+                <small>Nomes só quando importante</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="privacy" value="with-names">
+              <span class="card-content">
+                <strong>👥 Com Nomes</strong>
+                <small>Menciona participantes</small>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="options-actions">
+          <button id="btn-back-dates" class="btn-secondary">← Voltar</button>
+          <button id="btn-summarize" class="btn-primary">Gerar Resumo ✨</button>
+        </div>
+      </section>
+
+      <!-- Step 4: Result -->
+      <section id="step-result" class="step">
+        <div class="result-header">
+          <h2>Resumo do dia</h2>
+          <p id="result-date"></p>
+        </div>
+
+        <div class="result-content">
+          <div id="summary-text" class="summary-text"></div>
+          
+          <div id="summary-stats" class="summary-stats"></div>
+        </div>
+
+        <div class="result-actions">
+          <button id="btn-copy" class="btn-secondary">📋 Copiar</button>
+          <button id="btn-share" class="btn-secondary" hidden>📤 Compartilhar</button>
+          <button id="btn-new-date" class="btn-primary">Nova Data</button>
+        </div>
+      </section>
+
+      <!-- Loading Overlay -->
+      <div id="loading" class="loading" hidden>
+        <div class="loading-content">
+          <div class="spinner"></div>
+          <p id="loading-text">Processando...</p>
+        </div>
+      </div>
+
+      <!-- Error Toast -->
+      <div id="toast" class="toast" hidden></div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Seus dados não são armazenados. Processamento via <a href="https://groq.com" target="_blank">Groq AI</a>.</p>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
+
