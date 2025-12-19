@@ -90,7 +90,7 @@ function showToast(message, type = 'info') {
 function formatDate(dateStr) {
   const [year, month, day] = dateStr.split('-');
   const date = new Date(year, month - 1, day);
-  const options = { weekday: 'long', day: 'numeric', month: 'long' };
+  const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
   return date.toLocaleDateString('pt-BR', options);
 }
 

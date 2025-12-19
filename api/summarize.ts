@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Groq from 'groq-sdk';
-import type { ErrorResponse, SummaryLevel, PrivacyMode } from '../src/types/index.js';
+import type { SummaryLevel, PrivacyMode } from '../src/types/index.js';
 
 interface ParsedMessage {
   date: string;
@@ -22,12 +22,13 @@ const groq = new Groq({
 });
 
 const MODEL = 'llama-3.1-8b-instant';
+const MAX_TOKENS_PER_CHUNK = 6000; // ~24k characters, safe for 32k context
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { name: string; maxTokens: number; prompt: string }> = {
-  1: { name: 'Flash', maxTokens: 100, prompt: 'Faça um resumo ULTRA-CURTO em apenas 1-2 frases.' },
-  2: { name: 'Resumido', maxTokens: 300, prompt: 'Faça um resumo CURTO com parágrafos breves.' },
-  3: { name: 'Padrão', maxTokens: 500, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos.' },
-  4: { name: 'Completo', maxTokens: 800, prompt: 'Faça um resumo COMPLETO incluindo quem disse o quê.' }
+  1: { name: 'Flash', maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em apenas 2-3 frases dos principais tópicos.' },
+  2: { name: 'Resumido', maxTokens: 400, prompt: 'Faça um resumo CURTO com parágrafos breves por assunto.' },
+  3: { name: 'Padrão', maxTokens: 600, prompt: 'Faça um resumo DETALHADO cobrindo todos os assuntos importantes.' },
+  4: { name: 'Completo', maxTokens: 1000, prompt: 'Faça um resumo COMPLETO e detalhado incluindo quem disse o quê.' }
 };
 
 const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
@@ -36,16 +37,119 @@ const PRIVACY_INSTRUCTIONS: Record<PrivacyMode, string> = {
   'smart': 'Mencione nomes APENAS para contribuições muito importantes. Evite números de telefone.'
 };
 
+// Estimate tokens (roughly 4 chars per token for Portuguese)
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+// Format messages for AI
+function formatMessages(messages: ParsedMessage[], includeNames: boolean): string {
+  return messages
+    .filter(msg => msg.sender !== '__system__')
+    .map(msg => {
+      if (msg.isMedia) {
+        return includeNames ? `[${msg.time}] ${msg.sender}: [mídia]` : `[${msg.time}] [mídia]`;
+      }
+      return includeNames ? `[${msg.time}] ${msg.sender}: ${msg.content}` : `[${msg.time}] ${msg.content}`;
+    })
+    .join('\n');
+}
+
+// Chunk messages into groups that fit token limits
+function chunkMessages(messages: ParsedMessage[], includeNames: boolean): string[] {
+  const chunks: string[] = [];
+  let currentChunk: ParsedMessage[] = [];
+  let currentTokens = 0;
+
+  for (const msg of messages) {
+    const msgText = includeNames 
+      ? `[${msg.time}] ${msg.sender}: ${msg.content}`
+      : `[${msg.time}] ${msg.content}`;
+    const msgTokens = estimateTokens(msgText);
+
+    if (currentTokens + msgTokens > MAX_TOKENS_PER_CHUNK && currentChunk.length > 0) {
+      chunks.push(formatMessages(currentChunk, includeNames));
+      currentChunk = [];
+      currentTokens = 0;
+    }
+
+    currentChunk.push(msg);
+    currentTokens += msgTokens;
+  }
+
+  if (currentChunk.length > 0) {
+    chunks.push(formatMessages(currentChunk, includeNames));
+  }
+
+  return chunks;
+}
+
+// Generate summary for a single chunk
+async function summarizeChunk(
+  text: string, 
+  config: typeof LEVEL_CONFIGS[1], 
+  privacyNote: string,
+  isPartial: boolean
+): Promise<{ summary: string; tokens: number }> {
+  const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp em português brasileiro.
+${config.prompt}
+${privacyNote}
+${isPartial ? 'Este é apenas uma PARTE da conversa. Faça um resumo desta parte.' : ''}
+Organize por temas/assuntos quando apropriado. Use markdown para formatação.`;
+
+  const completion = await groq.chat.completions.create({
+    model: MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Resuma esta conversa:\n\n${text}` }
+    ],
+    max_tokens: config.maxTokens,
+    temperature: 0.3,
+  });
+
+  return {
+    summary: completion.choices[0]?.message?.content || '',
+    tokens: completion.usage?.total_tokens || 0
+  };
+}
+
+// Merge multiple summaries into one
+async function mergeSummaries(
+  summaries: string[], 
+  config: typeof LEVEL_CONFIGS[1],
+  privacyNote: string
+): Promise<{ summary: string; tokens: number }> {
+  const systemPrompt = `Você é um assistente que consolida resumos de conversa em português brasileiro.
+${config.prompt}
+${privacyNote}
+Você receberá vários resumos parciais. Combine-os em um único resumo coeso, removendo redundâncias.
+Use markdown para formatação.`;
+
+  const combined = summaries.map((s, i) => `### Parte ${i + 1}\n${s}`).join('\n\n');
+
+  const completion = await groq.chat.completions.create({
+    model: MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Combine estes resumos em um único resumo final:\n\n${combined}` }
+    ],
+    max_tokens: Math.floor(config.maxTokens * 1.5),
+    temperature: 0.3,
+  });
+
+  return {
+    summary: completion.choices[0]?.message?.content || '',
+    tokens: completion.usage?.total_tokens || 0
+  };
+}
+
 /**
  * POST /api/summarize
- * 
- * Receives messages directly from client and generates summary
  */
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -56,11 +160,7 @@ export default async function handler(
   }
 
   if (req.method !== 'POST') {
-    const error: ErrorResponse = { 
-      error: 'Method not allowed', 
-      code: 'METHOD_NOT_ALLOWED' 
-    };
-    res.status(405).json(error);
+    res.status(405).json({ error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' });
     return;
   }
 
@@ -71,85 +171,66 @@ export default async function handler(
     const { messages, level = 3, privacy = 'smart' } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      const error: ErrorResponse = { 
-        error: 'No messages provided', 
-        code: 'NO_MESSAGES' 
-      };
-      res.status(400).json(error);
+      res.status(400).json({ error: 'No messages provided', code: 'NO_MESSAGES' });
       return;
     }
 
-    // Validate level and privacy
     const summaryLevel: SummaryLevel = ([1, 2, 3, 4].includes(level) ? level : 3) as SummaryLevel;
     const privacyMode: PrivacyMode = ['anonymous', 'with-names', 'smart'].includes(privacy) ? privacy : 'smart';
 
-    // Get unique participants
     const participants = new Set(messages.map(m => m.sender).filter(s => s !== '__system__'));
-
-    // Format messages for AI
     const includeNames = privacyMode !== 'anonymous';
-    const messagesText = messages
-      .filter(msg => msg.sender !== '__system__')
-      .map(msg => {
-        if (msg.isMedia) {
-          return includeNames ? `[${msg.time}] ${msg.sender}: [mídia]` : `[${msg.time}] [mídia]`;
-        }
-        return includeNames ? `[${msg.time}] ${msg.sender}: ${msg.content}` : `[${msg.time}] ${msg.content}`;
-      })
-      .join('\n');
 
-    // Build prompt
     const config = LEVEL_CONFIGS[summaryLevel];
     const privacyNote = PRIVACY_INSTRUCTIONS[privacyMode];
 
-    const systemPrompt = `Você é um assistente que resume conversas de grupo do WhatsApp em português brasileiro.
-${config.prompt}
-${privacyNote}
-Organize o resumo por temas/assuntos quando apropriado.`;
+    // Chunk messages if needed
+    const chunks = chunkMessages(messages, includeNames);
+    let totalTokens = 0;
+    let finalSummary: string;
 
-    // Call Groq API
-    const completion = await groq.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Resuma esta conversa do grupo:\n\n${messagesText}` }
-      ],
-      max_tokens: config.maxTokens,
-      temperature: 0.3,
-    });
+    if (chunks.length === 1) {
+      // Single chunk - direct summarization
+      const result = await summarizeChunk(chunks[0], config, privacyNote, false);
+      finalSummary = result.summary;
+      totalTokens = result.tokens;
+    } else {
+      // Multiple chunks - summarize each then merge
+      const partialSummaries: string[] = [];
+      
+      for (const chunk of chunks) {
+        const result = await summarizeChunk(chunk, config, privacyNote, true);
+        partialSummaries.push(result.summary);
+        totalTokens += result.tokens;
+      }
 
-    const summary = completion.choices[0]?.message?.content || '';
-    const tokensUsed = completion.usage?.total_tokens || 0;
-    const processingTime = Date.now() - startTime;
+      const mergeResult = await mergeSummaries(partialSummaries, config, privacyNote);
+      finalSummary = mergeResult.summary;
+      totalTokens += mergeResult.tokens;
+    }
 
     res.status(200).json({
-      summary,
+      summary: finalSummary,
       stats: {
         totalMessages: messages.length,
         participants: participants.size,
-        tokensUsed,
-        chunks: 1,
-        processingTime
+        tokensUsed: totalTokens,
+        chunks: chunks.length,
+        processingTime: Date.now() - startTime
       }
     });
 
   } catch (err) {
     console.error('Summarize error:', err);
     
-    // Check for rate limit error
-    if (err instanceof Error && err.message.includes('rate')) {
-      const error: ErrorResponse = { 
-        error: 'Rate limit exceeded. Please wait a moment and try again.', 
+    if (err instanceof Error && (err.message.includes('rate') || err.message.includes('429'))) {
+      res.status(429).json({ 
+        error: 'Limite de requisições excedido. Aguarde um momento e tente novamente.', 
         code: 'RATE_LIMITED' 
-      };
-      res.status(429).json(error);
+      });
       return;
     }
 
-    const error: ErrorResponse = { 
-      error: 'Failed to generate summary', 
-      code: 'SUMMARIZE_ERROR' 
-    };
-    res.status(500).json(error);
+    res.status(500).json({ error: 'Falha ao gerar resumo', code: 'SUMMARIZE_ERROR' });
   }
 }
