@@ -21,8 +21,10 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
-const MODEL = 'llama-3.1-8b-instant';
-const MAX_TOKENS_PER_CHUNK = 6000; // ~24k characters, safe for 32k context
+// Using mixtral for better quality and larger context
+const MODEL = 'mixtral-8x7b-32768';
+// Keep chunks small to stay under 6k TPM limit per request
+const MAX_TOKENS_PER_CHUNK = 4000;
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { name: string; maxTokens: number; prompt: string }> = {
   1: { name: 'Flash', maxTokens: 150, prompt: 'Faça um resumo ULTRA-CURTO em apenas 2-3 frases dos principais tópicos.' },
@@ -189,13 +191,17 @@ export default async function handler(
     let totalTokens = 0;
     let finalSummary: string;
 
+    // For large conversations, only process first chunk to avoid timeout and rate limits
+    // Client can request more chunks separately if needed
+    const maxChunksPerRequest = 1; // Process only 1 chunk per request to stay under limits
+    
     if (chunks.length === 1) {
       // Single chunk - direct summarization
       const result = await summarizeChunk(chunks[0], config, privacyNote, false);
       finalSummary = result.summary;
       totalTokens = result.tokens;
-    } else {
-      // Multiple chunks - summarize each then merge
+    } else if (chunks.length <= maxChunksPerRequest) {
+      // Few chunks - can process all
       const partialSummaries: string[] = [];
       
       for (const chunk of chunks) {
@@ -207,6 +213,17 @@ export default async function handler(
       const mergeResult = await mergeSummaries(partialSummaries, config, privacyNote);
       finalSummary = mergeResult.summary;
       totalTokens += mergeResult.tokens;
+    } else {
+      // Too many chunks - summarize what we can in one request
+      // Take messages from different parts of the day for a representative sample
+      const sampleSize = Math.min(messages.length, 200); // Max 200 messages
+      const step = Math.floor(messages.length / sampleSize);
+      const sampledMessages = messages.filter((_, i) => i % step === 0).slice(0, sampleSize);
+      
+      const sampleText = formatMessages(sampledMessages, includeNames);
+      const result = await summarizeChunk(sampleText, config, privacyNote, false);
+      finalSummary = result.summary + `\n\n_Nota: Este resumo foi baseado em uma amostra de ${sampleSize} de ${messages.length} mensagens devido a limitações de processamento._`;
+      totalTokens = result.tokens;
     }
 
     res.status(200).json({
