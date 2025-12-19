@@ -13,8 +13,8 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // Use FAST model for merge to avoid timeout
 const MODEL = 'llama-3.1-8b-instant';
 
-// Max chars to send (to stay under 10s timeout)
-const MAX_INPUT_CHARS = 8000;
+// Max chars to send (reduced to stay well under 10s timeout)
+const MAX_INPUT_CHARS = 4000;
 
 const LEVEL_CONFIGS: Record<SummaryLevel, { maxTokens: number; prompt: string }> = {
   1: { maxTokens: 150, prompt: 'Crie um resumo ULTRA-CURTO em 2-3 frases.' },

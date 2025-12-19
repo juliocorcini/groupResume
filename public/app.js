@@ -415,48 +415,99 @@ async function summarizeChunk(messages, isPartial = false) {
   return res.json();
 }
 
-async function mergeSummaries(summaries) {
-  // Helper to make merge request with rate limit handling
-  async function doMerge(batch) {
+async function mergeSummaries(summaries, progressLabel = 'Combinando') {
+  // Helper to make merge request with timeout and rate limit handling
+  async function doMerge(batch, retryCount = 0) {
     // Check if rate limit is active before request
     if (isRateLimitActive()) {
       updateProgressUI(0, 1, 'Aguardando limite de API...');
       await waitForRateLimit();
     }
     
-    const res = await fetch('/api/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ summaries: batch, level: state.level, privacy: state.privacy })
-    });
-    
-    if (!res.ok) {
-      const errorData = await res.json();
-      const errorMsg = errorData.error || 'Erro ao combinar';
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s client timeout
       
-      // Check if rate limit error
-      if (res.status === 429 || errorMsg.includes('rate') || errorMsg.includes('limit')) {
-        await handleRateLimitError(new Error(errorMsg));
-        // Retry after waiting
-        return doMerge(batch);
+      const res = await fetch('/api/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summaries: batch, level: state.level, privacy: state.privacy }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = errorData.error || `HTTP ${res.status}`;
+        
+        // Check if timeout (504) - split and retry
+        if (res.status === 504 && batch.length > 1 && retryCount < 2) {
+          console.log(`Merge timeout with ${batch.length} items, splitting...`);
+          return splitAndRetryMerge(batch, retryCount + 1);
+        }
+        
+        // Check if rate limit error
+        if (res.status === 429 || errorMsg.includes('rate') || errorMsg.includes('limit')) {
+          await handleRateLimitError(new Error(errorMsg));
+          return doMerge(batch, retryCount);
+        }
+        
+        throw new Error(errorMsg);
       }
       
-      throw new Error(errorMsg);
+      return res.json();
+    } catch (err) {
+      // Handle fetch abort (timeout)
+      if (err.name === 'AbortError' && batch.length > 1 && retryCount < 2) {
+        console.log(`Merge client timeout with ${batch.length} items, splitting...`);
+        return splitAndRetryMerge(batch, retryCount + 1);
+      }
+      throw err;
     }
-    
-    return res.json();
   }
   
-  // If too many summaries, merge in batches of 3
-  if (summaries.length > 4) {
+  // Split batch in half and merge each half, then merge results
+  async function splitAndRetryMerge(batch, retryCount) {
+    const mid = Math.ceil(batch.length / 2);
+    const firstHalf = batch.slice(0, mid);
+    const secondHalf = batch.slice(mid);
+    
+    updateProgressUI(0, 1, `${progressLabel} (dividindo)...`);
+    
+    const results = [];
+    
+    if (firstHalf.length === 1) {
+      results.push(firstHalf[0]);
+    } else {
+      const r1 = await doMerge(firstHalf, retryCount);
+      results.push(r1.summary);
+    }
+    
+    if (secondHalf.length === 1) {
+      results.push(secondHalf[0]);
+    } else {
+      const r2 = await doMerge(secondHalf, retryCount);
+      results.push(r2.summary);
+    }
+    
+    // Final merge of the two halves
+    return doMerge(results, retryCount);
+  }
+  
+  // If too many summaries, merge in batches of 2 (smaller batches = less timeout risk)
+  if (summaries.length > 3) {
     const batches = [];
-    for (let i = 0; i < summaries.length; i += 3) {
-      batches.push(summaries.slice(i, i + 3));
+    for (let i = 0; i < summaries.length; i += 2) {
+      batches.push(summaries.slice(i, i + 2));
     }
     
     // First pass: merge each batch
     const firstPassResults = [];
-    for (const batch of batches) {
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      updateProgressUI(i, batches.length, `${progressLabel} ${i + 1}/${batches.length}...`);
+      
       if (batch.length === 1) {
         firstPassResults.push(batch[0]);
       } else {
@@ -466,25 +517,90 @@ async function mergeSummaries(summaries) {
     }
     
     // If still too many, merge again
-    if (firstPassResults.length > 3) {
-      return mergeSummaries(firstPassResults);
+    if (firstPassResults.length > 2) {
+      return mergeSummaries(firstPassResults, progressLabel);
     }
     
     // Final merge
     summaries = firstPassResults;
   }
   
+  if (summaries.length === 1) {
+    return { summary: summaries[0] };
+  }
+  
   return doMerge(summaries);
 }
 
-async function analyzeGroup(messages, style) {
-  const res = await fetch('/api/analyze-group', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, style, privacy: state.privacy })
-  });
-  if (!res.ok) throw new Error((await res.json()).error || 'Erro ao analisar');
-  return res.json();
+async function analyzeGroup(messages, style, retryCount = 0) {
+  // Check rate limit first
+  if (isRateLimitActive()) {
+    await waitForRateLimit();
+  }
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s client timeout
+    
+    const res = await fetch('/api/analyze-group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, style, privacy: state.privacy }),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      const errorMsg = errorData.error || `HTTP ${res.status}`;
+      
+      // Check if timeout (504) - split messages and retry
+      if (res.status === 504 && messages.length > 50 && retryCount < 2) {
+        console.log(`Analyze timeout with ${messages.length} msgs, splitting...`);
+        return splitAndRetryAnalyze(messages, style, retryCount + 1);
+      }
+      
+      // Check if rate limit error
+      if (res.status === 429 || errorMsg.includes('rate') || errorMsg.includes('limit')) {
+        await handleRateLimitError(new Error(errorMsg));
+        return analyzeGroup(messages, style, retryCount);
+      }
+      
+      throw new Error(errorMsg);
+    }
+    
+    return res.json();
+  } catch (err) {
+    // Handle fetch abort (timeout)
+    if (err.name === 'AbortError' && messages.length > 50 && retryCount < 2) {
+      console.log(`Analyze client timeout with ${messages.length} msgs, splitting...`);
+      return splitAndRetryAnalyze(messages, style, retryCount + 1);
+    }
+    throw err;
+  }
+}
+
+// Split messages in half, analyze each, then merge
+async function splitAndRetryAnalyze(messages, style, retryCount) {
+  const mid = Math.ceil(messages.length / 2);
+  const firstHalf = messages.slice(0, mid);
+  const secondHalf = messages.slice(mid);
+  
+  console.log(`Splitting ${messages.length} into ${firstHalf.length} + ${secondHalf.length}`);
+  
+  const [r1, r2] = await Promise.all([
+    analyzeGroup(firstHalf, style, retryCount),
+    analyzeGroup(secondHalf, style, retryCount)
+  ]);
+  
+  // Merge the two partial analyses
+  const merged = await mergeSummaries([r1.analysis, r2.analysis], 'Juntando partes');
+  
+  return {
+    analysis: merged.summary,
+    vibeScore: Math.round((r1.vibeScore + r2.vibeScore) / 2) || 7
+  };
 }
 
 // ==============================================
@@ -852,26 +968,30 @@ async function startGroupAnalysis() {
       displayGroupResult(result.analysis, result.vibeScore, stats);
     } else {
       // Multiple chunks - process with smart rate limit handling
-      showProgressUI(chunks.length);
+      showProgressUI(chunks.length + 1); // +1 for merge step
       const summaries = [];
+      let currentStep = 0;
       
       for (let i = 0; i < chunks.length; i++) {
-        updateProgressUI(i, chunks.length, `Analisando parte ${i + 1}/${chunks.length}...`);
+        currentStep = i;
+        updateProgressUI(currentStep, chunks.length + 1, `Analisando parte ${i + 1}/${chunks.length}...`);
         
         // Try with automatic retry on rate limit
         const result = await callWithRateLimitRetry(
           () => analyzeGroup(chunks[i], state.analysisStyle),
-          (text) => updateProgressUI(i, chunks.length, text),
-          i + 1, // currentChunk
-          chunks.length, // totalChunks
-          3 // max retries
+          (text) => updateProgressUI(currentStep, chunks.length + 1, text),
+          i + 1,
+          chunks.length,
+          3
         );
         
         summaries.push(result.analysis);
       }
       
-      updateProgressUI(chunks.length, chunks.length, 'Combinando análises...');
-      const mergeResult = await mergeSummaries(summaries);
+      // Merge step
+      currentStep = chunks.length;
+      updateProgressUI(currentStep, chunks.length + 1, 'Combinando análises...');
+      const mergeResult = await mergeSummaries(summaries, 'Combinando');
       
       displayGroupResult(mergeResult.summary, 7, stats);
     }
