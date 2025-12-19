@@ -589,6 +589,189 @@ a:hover {
 }
 
 /* ==============================================
+   Token Bar
+   ============================================== */
+.token-bar {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  max-width: 568px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  z-index: 50;
+}
+
+.token-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: var(--border-radius-sm);
+  transition: width 0.3s ease, background 0.3s ease;
+  opacity: 0.2;
+}
+
+.token-fill.good { background: var(--success); }
+.token-fill.warning { background: var(--warning); }
+.token-fill.critical { background: var(--error); }
+
+.token-text {
+  position: relative;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  z-index: 1;
+}
+
+/* ==============================================
+   Mode Selection Modal
+   ============================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 15, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: var(--spacing-md);
+  backdrop-filter: blur(8px);
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-xl);
+  max-width: 600px;
+  width: 100%;
+  animation: modalIn 0.3s ease;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-content h2 {
+  font-size: 1.3rem;
+  margin-bottom: var(--spacing-xs);
+  text-align: center;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+@media (max-width: 500px) {
+  .mode-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mode-card {
+  background: var(--bg-tertiary);
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: var(--spacing-lg);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.mode-card:hover {
+  border-color: var(--accent-primary);
+  transform: translateY(-2px);
+}
+
+.mode-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.mode-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: var(--spacing-xs);
+}
+
+.mode-card > p {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-md);
+}
+
+.mode-card ul {
+  list-style: none;
+  text-align: left;
+  font-size: 0.85rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.mode-card li {
+  padding: var(--spacing-xs) 0;
+  color: var(--text-secondary);
+}
+
+.mode-time {
+  font-weight: 600;
+  color: var(--accent-secondary);
+  font-size: 0.95rem;
+}
+
+.modal-cancel {
+  display: block;
+  margin: 0 auto;
+}
+
+/* ==============================================
+   Progress Bar (for full mode)
+   ============================================== */
+.progress-container {
+  width: 100%;
+  max-width: 300px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: var(--spacing-sm);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ==============================================
+   Large message count indicator
+   ============================================== */
+.message-count.large {
+  color: var(--warning);
+}
+
+/* ==============================================
    PWA Install Banner (optional)
    ============================================== */
 .install-prompt {
