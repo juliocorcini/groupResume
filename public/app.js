@@ -358,19 +358,42 @@ function updateTimeSlider() {
 }
 
 function updateModeEstimates() {
-  const totalMsgsAvailable = state.allDates.reduce((sum, d) => sum + d.messageCount, 0);
-  const avgMsgsPerDay = totalMsgsAvailable / state.allDates.length || 500;
+  if (!state.allDates.length) return;
   
-  // Complete mode: how many full days fit
-  const completeDays = Math.floor(state.maxMessages / avgMsgsPerDay);
+  // Calculate based on actual day sizes
+  let completeTotal = 0;
+  let completeDays = 0;
+  let samplingTotal = 0;
+  let samplingDays = 0;
+  
+  // Sort by date (most recent first) and calculate
+  const sortedDates = [...state.allDates].sort((a, b) => b.date.localeCompare(a.date));
+  
+  for (const day of sortedDates) {
+    // Complete mode: all messages
+    if (completeTotal + day.messageCount <= state.maxMessages) {
+      completeTotal += day.messageCount;
+      completeDays++;
+    }
+    
+    // Sampling mode: max 300 per day
+    const sampledMsgs = Math.min(day.messageCount, MSGS_PER_DAY_SAMPLING);
+    if (samplingTotal + sampledMsgs <= state.maxMessages) {
+      samplingTotal += sampledMsgs;
+      samplingDays++;
+    }
+  }
+  
   if (elements.completeEstimate) {
     elements.completeEstimate.textContent = `~${completeDays} dias completos`;
   }
   
-  // Sampling mode: how many days with sampling
-  const samplingDays = Math.floor(state.maxMessages / MSGS_PER_DAY_SAMPLING);
   if (elements.samplingEstimate) {
-    elements.samplingEstimate.textContent = `~${samplingDays} dias (trechos)`;
+    if (samplingDays <= completeDays) {
+      elements.samplingEstimate.textContent = `~${samplingDays} dias (sem vantagem)`;
+    } else {
+      elements.samplingEstimate.textContent = `~${samplingDays} dias (${samplingDays - completeDays} a mais!)`;
+    }
   }
 }
 
