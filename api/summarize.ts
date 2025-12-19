@@ -14,7 +14,6 @@ interface SummarizeRequestBody {
   messages: ParsedMessage[];
   level: SummaryLevel;
   privacy: PrivacyMode;
-  date: string;
 }
 
 // Initialize Groq client
@@ -69,7 +68,7 @@ export default async function handler(
 
   try {
     const body = req.body as SummarizeRequestBody;
-    const { messages, level = 3, privacy = 'smart', date } = body;
+    const { messages, level = 3, privacy = 'smart' } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       const error: ErrorResponse = { 
