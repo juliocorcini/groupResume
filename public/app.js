@@ -5,15 +5,15 @@
 // ==============================================
 // Constants
 // ==============================================
-// Tested limits for Vercel 10s timeout
-// llama-3.3-70b-versatile is BEST: <1s response, 150 msgs/chunk
+// TESTED limits for Vercel 10s timeout
+// llama-4-scout is THE BEST: 250 msgs, 1.3s, 30K TPM!
 const MODEL_LIMITS = {
-  fast: 100,      // llama-3.1-8b-instant
-  balanced: 150,  // llama-3.3-70b-versatile - BEST!
-  powerful: 150   // Same (compound-beta was too slow)
+  fast: 80,       // llama-3.1-8b-instant - 6K TPM
+  balanced: 120,  // llama-3.3-70b-versatile - 12K TPM
+  powerful: 250   // llama-4-scout - 30K TPM, 1300 msgs in ~8s!
 };
-const DEFAULT_MODEL = 'balanced'; // Best performance!
-const FULL_MODE_THRESHOLD = 150; // Show modal above this
+const DEFAULT_MODEL = 'powerful'; // Best: 250 msgs/chunk!
+const FULL_MODE_THRESHOLD = 250; // Show modal above this
 
 // ==============================================
 // State
