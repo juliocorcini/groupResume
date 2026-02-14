@@ -1744,7 +1744,9 @@ elements.btnNewAudio?.addEventListener('click', () => {
 // ==============================================
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/sw.js')
+    .then(reg => console.log('SW registered, scope:', reg.scope))
+    .catch(err => console.error('SW registration failed:', err));
 }
 
 (async function init() {

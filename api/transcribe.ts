@@ -2,7 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Groq from 'groq-sdk';
 import formidable from 'formidable';
 import { createReadStream } from 'fs';
-import { stat } from 'fs/promises';
+import { rename, stat } from 'fs/promises';
+import { extname } from 'path';
 
 // Disable body parsing — we handle it with formidable
 export const config = {
@@ -68,10 +69,17 @@ export default async function handler(
     const fileStats = await stat(audioFile.filepath);
     const fileSizeMB = fileStats.size / (1024 * 1024);
 
+    // Formidable saves files without extension — Groq API requires a valid
+    // audio extension to detect file type. Rename temp file with the original extension.
+    const originalName = audioFile.originalFilename || 'audio.ogg';
+    const ext = extname(originalName) || '.ogg';
+    const renamedPath = audioFile.filepath + ext;
+    await rename(audioFile.filepath, renamedPath);
+
     // 2. Transcribe with Groq Whisper
     const transcriptionResult = await groq.audio.transcriptions.create({
       model: WHISPER_MODEL,
-      file: createReadStream(audioFile.filepath),
+      file: createReadStream(renamedPath),
       language: 'pt',
       response_format: 'verbose_json',
     });

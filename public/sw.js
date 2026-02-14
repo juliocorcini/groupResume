@@ -1,4 +1,4 @@
-const CACHE_NAME = 'resumo-grupo-v2';
+const CACHE_NAME = 'resumo-grupo-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -44,8 +44,8 @@ self.addEventListener('fetch', (event) => {
       const formData = await event.request.formData();
       const cache = await caches.open('share-target-cache');
 
-      // Check all possible field names from manifest share_target params
-      const file = formData.get('audio') || formData.get('file');
+      // Get the shared file — now uses single 'file' field in manifest
+      const file = formData.get('file');
 
       if (file && file instanceof File) {
         // Cache the file blob directly (reliable for both text and binary)

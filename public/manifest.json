@@ -2,7 +2,9 @@
   "name": "Resumo de Grupo WhatsApp",
   "short_name": "ResumoGrupo",
   "description": "Resuma conversas e áudios do WhatsApp usando IA",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0a0a0f",
   "theme_color": "#6366f1",
@@ -45,14 +47,12 @@
       "files": [
         {
           "name": "file",
-          "accept": ["text/plain", ".txt"]
-        },
-        {
-          "name": "audio",
           "accept": [
-            "audio/ogg", "audio/opus", "audio/mpeg", "audio/mp4",
-            "audio/wav", "audio/webm", "audio/x-m4a",
-            ".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm"
+            "text/*", "text/plain",
+            "audio/*", "audio/ogg", "audio/opus", "audio/mpeg", "audio/mp4",
+            "audio/wav", "audio/webm", "audio/x-m4a", "audio/aac",
+            "application/ogg", "application/octet-stream",
+            ".txt", ".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm"
           ]
         }
       ]
