@@ -3,27 +3,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "public",
   "functions": {
-    "api/transcribe.ts": {
-      "memory": 1024,
-      "maxDuration": 30
-    },
-    "api/**/*.ts": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
+    "api/transcribe.ts": { "memory": 1024, "maxDuration": 30 },
+    "api/summarize-audio.ts": { "memory": 512, "maxDuration": 10 },
+    "api/audio-chat.ts": { "memory": 512, "maxDuration": 10 },
+    "api/**/*.ts": { "memory": 1024, "maxDuration": 10 }
   },
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/share",
-      "dest": "/share.html"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/share", "dest": "/share.html" },
+    { "src": "/(.*)", "dest": "/$1" }
   ]
 }

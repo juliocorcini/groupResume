@@ -281,7 +281,10 @@ const state = {
   collectionMode: 'complete', // 'complete' or 'sampling'
   selectedDaysForAnalysis: [],
   analysisStyle: 'roast',
-  maxMessages: 6000
+  maxMessages: 6000,
+  // Audio flow state
+  audioResult: null,  // { transcription, summary, stats, level }
+  audioChatMessages: []
 };
 
 // ==============================================
@@ -296,7 +299,9 @@ const elements = {
   stepResult: $('step-result'),
   stepGroupAnalysis: $('step-group-analysis'),
   stepGroupResult: $('step-group-result'),
+  stepAudioChoice: $('step-audio-choice'),
   stepAudioResult: $('step-audio-result'),
+  stepAudioChat: $('step-audio-chat'),
   uploadArea: $('upload-area'),
   fileInput: $('file-input'),
   datesInfo: $('dates-info'),
@@ -347,6 +352,20 @@ const elements = {
   audioSummary: $('audio-summary'),
   audioTranscription: $('audio-transcription'),
   audioStats: $('audio-stats'),
+  audioChoiceStats: $('audio-choice-stats'),
+  audioChoiceTranscription: $('audio-choice-transcription'),
+  audioLevelOptions: $('audio-level-options'),
+  btnGenerateSummary: $('btn-generate-summary'),
+  btnResummarize: $('btn-resummarize'),
+  btnChatAudio: $('btn-chat-audio'),
+  // Audio Chat elements
+  chatMessages: $('chat-messages'),
+  chatTyping: $('chat-typing'),
+  chatInput: $('chat-input'),
+  btnSendChat: $('btn-send-chat'),
+  btnBackFromChat: $('btn-back-from-chat'),
+  btnBackToAudioResult: $('btn-back-to-audio-result'),
+  btnCopyChat: $('btn-copy-chat'),
   btnCopyAudio: $('btn-copy-audio'),
   btnCopyTranscription: $('btn-copy-transcription'),
   btnShareAudio: $('btn-share-audio'),
@@ -358,7 +377,7 @@ const elements = {
 // ==============================================
 
 function showStep(name) {
-  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result', 'audio-result'].forEach(s => {
+  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result', 'audio-choice', 'audio-result', 'audio-chat'].forEach(s => {
     $(`step-${s}`)?.classList.toggle('active', s === name);
   });
 }
@@ -1462,7 +1481,101 @@ async function handleAudioFile(file) {
 
     const result = await response.json();
     hideLoading();
-    displayAudioResult(result);
+
+    // Store transcription + stats (NO summary yet)
+    state.audioResult = {
+      transcription: result.transcription,
+      summary: null,
+      stats: result.stats,
+      level: null,
+    };
+
+    // Show level choice step
+    displayAudioChoiceStep(result.transcription, result.stats);
+    showStep('audio-choice');
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
+  }
+}
+
+function displayAudioChoiceStep(transcription, stats) {
+  if (elements.audioChoiceStats) {
+    const parts = [];
+    if (stats.audioDuration) {
+      const min = Math.floor(stats.audioDuration / 60);
+      const sec = stats.audioDuration % 60;
+      parts.push(`${min}:${String(sec).padStart(2, '0')} de áudio`);
+    }
+    parts.push(`${stats.wordCount} palavras`);
+    if (stats.fileSizeMB) {
+      parts.push(`${stats.fileSizeMB.toFixed(1)} MB`);
+    }
+    elements.audioChoiceStats.textContent = parts.join(' · ');
+  }
+
+  if (elements.audioChoiceTranscription) {
+    elements.audioChoiceTranscription.textContent = transcription;
+  }
+
+  // Reset level selection to default (topicos)
+  const topicosRadio = document.querySelector('input[name="audio-level"][value="topicos"]');
+  if (topicosRadio) {
+    topicosRadio.checked = true;
+    document.querySelectorAll('#audio-level-options .radio-card').forEach(c => {
+      c.classList.toggle('selected', c.querySelector('input').value === 'topicos');
+    });
+  }
+}
+
+async function generateAudioSummary() {
+  const levelRadio = document.querySelector('input[name="audio-level"]:checked');
+  const level = levelRadio?.value || 'topicos';
+
+  if (!state.audioResult?.transcription) {
+    showToast('Nenhuma transcrição disponível', 'error');
+    return;
+  }
+
+  if (isRateLimitActive()) {
+    showToast('Aguarde o limite de API para continuar.', 'error');
+    return;
+  }
+
+  try {
+    showLoading('Gerando resumo...');
+
+    const res = await fetch('/api/summarize-audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcription: state.audioResult.transcription,
+        level,
+      }),
+    });
+
+    if (res.status === 429) {
+      const data = await res.json();
+      const errorMsg = data.error || 'Rate limit reached';
+      const waitSeconds = parseWaitTime(errorMsg);
+      const limitType = detectLimitType(errorMsg);
+      startRateLimitCountdown(waitSeconds + 2, limitType);
+      hideLoading();
+      showToast('Limite de API atingido. Aguarde e tente novamente.', 'error');
+      return;
+    }
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Erro ao gerar resumo');
+    }
+
+    const data = await res.json();
+    state.audioResult.summary = data.summary;
+    state.audioResult.level = level;
+
+    hideLoading();
+    displayAudioResult(state.audioResult);
     showStep('audio-result');
   } catch (err) {
     hideLoading();
@@ -1473,9 +1586,9 @@ async function handleAudioFile(file) {
 function displayAudioResult(result) {
   const { transcription, summary, stats } = result;
 
-  // Summary (render basic markdown)
+  // Summary
   if (elements.audioSummary) {
-    elements.audioSummary.innerHTML = summary
+    elements.audioSummary.innerHTML = (summary || '')
       .replace(/##\s*(.+)/g, '<h2>$1</h2>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n\n/g, '</p><p>')
@@ -1488,7 +1601,7 @@ function displayAudioResult(result) {
   }
 
   // Stats
-  if (elements.audioStats) {
+  if (elements.audioStats && stats) {
     const parts = [];
     if (stats.audioDuration) {
       const min = Math.floor(stats.audioDuration / 60);
@@ -1496,16 +1609,152 @@ function displayAudioResult(result) {
       parts.push(`${min}:${String(sec).padStart(2, '0')} de áudio`);
     }
     parts.push(`${stats.wordCount} palavras`);
-    parts.push(`processado em ${(stats.totalTimeMs / 1000).toFixed(1)}s`);
     if (stats.fileSizeMB) {
       parts.push(`${stats.fileSizeMB.toFixed(1)} MB`);
     }
     elements.audioStats.textContent = parts.join(' · ');
   }
 
-  // Show share button if available
   if (elements.btnShareAudio) {
     elements.btnShareAudio.hidden = !navigator.share;
+  }
+}
+
+function openAudioChat() {
+  if (!state.audioResult?.transcription) {
+    showToast('Nenhuma transcrição disponível', 'error');
+    return;
+  }
+  state.audioChatMessages = [];
+  renderChatMessages();
+  if (elements.chatInput) elements.chatInput.value = '';
+  if (elements.chatInput) elements.chatInput.disabled = false;
+  if (elements.btnSendChat) elements.btnSendChat.disabled = false;
+  showStep('audio-chat');
+  elements.chatInput?.focus();
+}
+
+function renderChatMessages() {
+  if (!elements.chatMessages) return;
+  elements.chatMessages.innerHTML = '';
+
+  if (state.audioChatMessages.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-empty';
+    empty.textContent = 'Faça sua primeira pergunta sobre o áudio.';
+    empty.style.cssText = 'color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: var(--spacing-lg);';
+    elements.chatMessages.appendChild(empty);
+    return;
+  }
+
+  state.audioChatMessages.forEach((msg) => {
+    if (msg.role === 'system') return;
+
+    const div = document.createElement('div');
+    div.className = `chat-message ${msg.role}`;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-message-bubble';
+    const escaped = msg.content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    bubble.innerHTML = escaped
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/##\s*(.+)/g, '<h2>$1</h2>')
+      .replace(/\n/g, '<br>');
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-message-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copiar';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(msg.content).then(() => showToast('Copiado!', 'success'));
+    };
+    actions.appendChild(copyBtn);
+    div.appendChild(bubble);
+    div.appendChild(actions);
+    elements.chatMessages.appendChild(div);
+  });
+
+  elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = elements.chatInput;
+  if (!input || !state.audioResult?.transcription) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  if (isRateLimitActive()) {
+    showToast('Aguarde o limite de API para enviar.', 'error');
+    return;
+  }
+
+  const userMessage = { role: 'user', content: text };
+  state.audioChatMessages.push(userMessage);
+  input.value = '';
+  input.disabled = true;
+  elements.btnSendChat.disabled = true;
+
+  renderChatMessages();
+  elements.chatTyping.hidden = false;
+  elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+
+  const messagesForApi = state.audioChatMessages
+    .filter(m => m.role !== 'system')
+    .map(m => ({ role: m.role, content: m.content }));
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const res = await fetch('/api/audio-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        transcription: state.audioResult.transcription,
+        messages: messagesForApi,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.status === 429) {
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || 'Rate limit reached';
+      const waitSeconds = parseWaitTime(errorMsg);
+      const limitType = detectLimitType(errorMsg);
+      startRateLimitCountdown(waitSeconds + 2, limitType);
+      state.audioChatMessages.pop();
+      renderChatMessages();
+      showToast('Limite de API atingido. Aguarde e tente novamente.', 'error');
+      return;
+    }
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Erro ${res.status}`);
+    }
+
+    const data = await res.json();
+    const assistantMessage = { role: 'assistant', content: data.content || '' };
+    state.audioChatMessages.push(assistantMessage);
+    renderChatMessages();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      showToast('Tempo esgotado. Tente uma pergunta mais curta.', 'error');
+    } else {
+      showToast(err.message || 'Erro ao enviar', 'error');
+    }
+    state.audioChatMessages.pop();
+    renderChatMessages();
+  } finally {
+    elements.chatTyping.hidden = true;
+    input.disabled = false;
+    elements.btnSendChat.disabled = false;
+    input.focus();
   }
 }
 
@@ -1708,6 +1957,50 @@ elements.btnShareAnalysis?.addEventListener('click', async () => {
 elements.btnNewAnalysis?.addEventListener('click', () => {
   state.selectedDaysForAnalysis = [];
   showStep('dates');
+});
+
+// Audio level selection
+elements.audioLevelOptions?.addEventListener('change', (e) => {
+  if (e.target.name === 'audio-level') {
+    document.querySelectorAll('#audio-level-options .radio-card').forEach(c => {
+      c.classList.toggle('selected', c.querySelector('input').checked);
+    });
+  }
+});
+
+elements.btnGenerateSummary?.addEventListener('click', generateAudioSummary);
+
+// Re-summarize: go back to choice step (transcription already in state)
+elements.btnResummarize?.addEventListener('click', () => {
+  if (!state.audioResult?.transcription) return;
+  displayAudioChoiceStep(state.audioResult.transcription, state.audioResult.stats);
+  showStep('audio-choice');
+});
+
+// Audio Chat
+elements.btnChatAudio?.addEventListener('click', openAudioChat);
+elements.btnBackFromChat?.addEventListener('click', () => showStep('audio-result'));
+elements.btnBackToAudioResult?.addEventListener('click', () => showStep('audio-result'));
+elements.btnSendChat?.addEventListener('click', sendChatMessage);
+
+elements.chatInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+
+elements.btnCopyChat?.addEventListener('click', async () => {
+  const text = state.audioChatMessages
+    .filter(m => m.role !== 'system')
+    .map(m => `${m.role === 'user' ? 'Você' : 'Assistente'}: ${m.content}`)
+    .join('\n\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('Conversa copiada!', 'success');
+  } catch {
+    showToast('Erro ao copiar', 'error');
+  }
 });
 
 // Audio Result Event Listeners

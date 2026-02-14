@@ -329,6 +329,93 @@
         </div>
       </section>
 
+      <!-- Step: Audio Summary Level Choice (after transcription, before result) -->
+      <section id="step-audio-choice" class="step">
+        <div class="result-header">
+          <h2>📝 Transcrição pronta</h2>
+          <p class="result-stats" id="audio-choice-stats"></p>
+        </div>
+
+        <p class="audio-choice-hint">Escolha o tipo de resumo que deseja:</p>
+
+        <div class="option-group">
+          <label>Nível do resumo</label>
+          <div class="radio-cards" id="audio-level-options">
+            <label class="radio-card">
+              <input type="radio" name="audio-level" value="flash">
+              <span class="card-content">
+                <strong>⚡ Flash</strong>
+                <small>2-3 tópicos principais — ideal para áudios curtos</small>
+              </span>
+            </label>
+            <label class="radio-card selected">
+              <input type="radio" name="audio-level" value="topicos" checked>
+              <span class="card-content">
+                <strong>📋 Tópicos</strong>
+                <small>Organizado por assunto — captura todos os temas (padrão)</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="audio-level" value="detalhado">
+              <span class="card-content">
+                <strong>📖 Detalhado</strong>
+                <small>Resumo completo com contexto e citações</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="audio-level" value="limpa">
+              <span class="card-content">
+                <strong>✨ Transcrição Limpa</strong>
+                <small>Texto formatado sem resumir — remove "né", "tipo", etc.</small>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <details class="transcription-details">
+          <summary>📝 Ver transcrição antes de resumir</summary>
+          <div id="audio-choice-transcription" class="transcription-text"></div>
+        </details>
+
+        <div class="options-actions">
+          <button id="btn-generate-summary" class="btn-primary">Gerar Resumo ✨</button>
+        </div>
+      </section>
+
+      <!-- Step: Audio Chat -->
+      <section id="step-audio-chat" class="step">
+        <div class="chat-header">
+          <button id="btn-back-from-chat" class="btn-back-inline" aria-label="Voltar">←</button>
+          <h2>💬 Conversar sobre o áudio</h2>
+          <p class="chat-subtitle">Pergunte qualquer coisa sobre o que foi dito</p>
+        </div>
+
+        <div class="chat-container">
+          <div id="chat-messages" class="chat-messages"></div>
+          <div id="chat-typing" class="chat-typing" hidden>
+            <div class="chat-typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+            <span class="typing-text">Pensando...</span>
+          </div>
+          <div class="chat-input-area">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="Ex: Quais foram os pontos principais? Me sugira uma resposta..."
+              rows="2"
+              maxlength="2000"
+            ></textarea>
+            <button id="btn-send-chat" class="btn-send-chat" aria-label="Enviar">Enviar</button>
+          </div>
+        </div>
+
+        <div class="chat-actions">
+          <button id="btn-copy-chat" class="btn-secondary">📋 Copiar conversa</button>
+          <button id="btn-back-to-audio-result" class="btn-link">← Voltar ao resumo</button>
+        </div>
+      </section>
+
       <!-- Step: Audio Result -->
       <section id="step-audio-result" class="step">
         <div class="result-header">
@@ -346,6 +433,8 @@
         </details>
 
         <div class="result-actions">
+          <button id="btn-chat-audio" class="btn-primary">💬 Conversar sobre o áudio</button>
+          <button id="btn-resummarize" class="btn-secondary">🔄 Re-summarizar com outro nível</button>
           <button id="btn-copy-audio" class="btn-secondary">📋 Copiar resumo</button>
           <button id="btn-copy-transcription" class="btn-secondary">📝 Copiar transcrição</button>
           <button id="btn-share-audio" class="btn-secondary" hidden>📤 Compartilhar</button>
