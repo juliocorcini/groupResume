@@ -451,12 +451,30 @@ a:hover {
 }
 
 .result-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--spacing-sm);
 }
 
 .result-actions button {
-  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+  font-size: 0.85rem;
+  padding: var(--spacing-md) var(--spacing-sm);
+}
+
+.result-actions button.btn-primary {
+  grid-column: span 2;
+}
+
+@media (min-width: 480px) {
+  .result-actions {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .result-actions button.btn-primary {
+    grid-column: span 3;
+  }
 }
 
 /* ==============================================
@@ -1687,6 +1705,10 @@ a:hover {
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-sm);
   width: fit-content;
+}
+
+.chat-typing[hidden] {
+  display: none;
 }
 
 .chat-typing-indicator {

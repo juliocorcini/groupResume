@@ -26,21 +26,22 @@ function truncateTranscription(text: string): string {
   return `${start}\n\n[... transcrição truncada no meio ...]\n\n${end}`;
 }
 
-const SYSTEM_PROMPT_TEMPLATE = `Você é um assistente que responde perguntas sobre o conteúdo de um áudio transcrito.
+const SYSTEM_PROMPT_TEMPLATE = `Você é um assistente que responde perguntas sobre o conteúdo fornecido pelo usuário.
 
-O usuário fez perguntas sobre um áudio. Abaixo está a transcrição completa (ou uma parte dela):
+O conteúdo pode ser uma transcrição de áudio, mensagens de um grupo de WhatsApp, ou uma análise/resumo.
+Abaixo está o conteúdo completo (ou uma parte dele):
 
 ---
-TRANSCRIÇÃO DO ÁUDIO:
+CONTEÚDO:
 {transcription}
 ---
 
 Instruções:
-- Responda APENAS com base no conteúdo da transcrição acima.
-- Se a pergunta não puder ser respondida com a transcrição, diga isso claramente.
+- Responda APENAS com base no conteúdo acima.
+- Se a pergunta não puder ser respondida com o conteúdo, diga isso claramente.
 - Use português brasileiro, a menos que o usuário peça em outro idioma.
 - Seja conciso mas completo.
-- Você pode: resumir trechos, explicar o que alguém quis dizer, sugerir respostas, traduzir, listar pontos principais, etc.`;
+- Você pode: resumir trechos, explicar o que alguém quis dizer, sugerir respostas, traduzir, listar pontos principais, analisar padrões, etc.`;
 
 export default async function handler(
   req: VercelRequest,

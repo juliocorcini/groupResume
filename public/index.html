@@ -229,6 +229,7 @@
         </div>
 
         <div class="result-actions">
+          <button id="btn-chat-analysis" class="btn-primary">💬 Conversar sobre a análise</button>
           <button id="btn-copy-analysis" class="btn-secondary">📋 Copiar</button>
           <button id="btn-share-analysis" class="btn-secondary" hidden>📤 Compartilhar</button>
           <button id="btn-new-analysis" class="btn-primary">Nova Análise</button>
@@ -323,6 +324,7 @@
         </div>
 
         <div class="result-actions">
+          <button id="btn-chat-summary" class="btn-primary">💬 Conversar sobre o resumo</button>
           <button id="btn-copy" class="btn-secondary">📋 Copiar</button>
           <button id="btn-share" class="btn-secondary" hidden>📤 Compartilhar</button>
           <button id="btn-new-date" class="btn-primary">Nova Data</button>
@@ -382,12 +384,12 @@
         </div>
       </section>
 
-      <!-- Step: Audio Chat -->
-      <section id="step-audio-chat" class="step">
+      <!-- Step: Chat (generic — works for audio transcription or group summary) -->
+      <section id="step-chat" class="step">
         <div class="chat-header">
           <button id="btn-back-from-chat" class="btn-back-inline" aria-label="Voltar">←</button>
-          <h2>💬 Conversar sobre o áudio</h2>
-          <p class="chat-subtitle">Pergunte qualquer coisa sobre o que foi dito</p>
+          <h2 id="chat-title">💬 Conversar</h2>
+          <p class="chat-subtitle" id="chat-subtitle">Pergunte qualquer coisa sobre o conteúdo</p>
         </div>
 
         <div class="chat-container">
@@ -412,7 +414,7 @@
 
         <div class="chat-actions">
           <button id="btn-copy-chat" class="btn-secondary">📋 Copiar conversa</button>
-          <button id="btn-back-to-audio-result" class="btn-link">← Voltar ao resumo</button>
+          <button id="btn-back-from-chat-link" class="btn-link">← Voltar ao resumo</button>
         </div>
       </section>
 

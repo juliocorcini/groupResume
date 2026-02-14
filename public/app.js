@@ -284,7 +284,9 @@ const state = {
   maxMessages: 6000,
   // Audio flow state
   audioResult: null,  // { transcription, summary, stats, level }
-  audioChatMessages: []
+  // Generic chat state
+  chatMessages: [],       // [{ role, content }, ...]
+  chatContext: null,       // { text, title, subtitle, backStep, type }
 };
 
 // ==============================================
@@ -301,7 +303,9 @@ const elements = {
   stepGroupResult: $('step-group-result'),
   stepAudioChoice: $('step-audio-choice'),
   stepAudioResult: $('step-audio-result'),
-  stepAudioChat: $('step-audio-chat'),
+  stepChat: $('step-chat'),
+  chatTitle: $('chat-title'),
+  chatSubtitle: $('chat-subtitle'),
   uploadArea: $('upload-area'),
   fileInput: $('file-input'),
   datesInfo: $('dates-info'),
@@ -358,13 +362,15 @@ const elements = {
   btnGenerateSummary: $('btn-generate-summary'),
   btnResummarize: $('btn-resummarize'),
   btnChatAudio: $('btn-chat-audio'),
-  // Audio Chat elements
+  btnChatSummary: $('btn-chat-summary'),
+  btnChatAnalysis: $('btn-chat-analysis'),
+  // Chat elements (generic — used for audio, day summary, and group analysis)
   chatMessages: $('chat-messages'),
   chatTyping: $('chat-typing'),
   chatInput: $('chat-input'),
   btnSendChat: $('btn-send-chat'),
   btnBackFromChat: $('btn-back-from-chat'),
-  btnBackToAudioResult: $('btn-back-to-audio-result'),
+  btnBackFromChatLink: $('btn-back-from-chat-link'),
   btnCopyChat: $('btn-copy-chat'),
   btnCopyAudio: $('btn-copy-audio'),
   btnCopyTranscription: $('btn-copy-transcription'),
@@ -377,7 +383,7 @@ const elements = {
 // ==============================================
 
 function showStep(name) {
-  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result', 'audio-choice', 'audio-result', 'audio-chat'].forEach(s => {
+  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result', 'audio-choice', 'audio-result', 'chat'].forEach(s => {
     $(`step-${s}`)?.classList.toggle('active', s === name);
   });
 }
@@ -1620,17 +1626,37 @@ function displayAudioResult(result) {
   }
 }
 
-function openAudioChat() {
-  if (!state.audioResult?.transcription) {
-    showToast('Nenhuma transcrição disponível', 'error');
+// ==============================================
+// Generic Chat (works for audio, day summary, group analysis)
+// ==============================================
+
+function openChat(contextText, options = {}) {
+  const {
+    title = '💬 Conversar',
+    subtitle = 'Pergunte qualquer coisa sobre o conteúdo',
+    backStep = 'upload',
+    type = 'generic',
+    emptyHint = 'Faça sua primeira pergunta sobre o conteúdo.',
+  } = options;
+
+  if (!contextText) {
+    showToast('Nenhum conteúdo disponível para conversa', 'error');
     return;
   }
-  state.audioChatMessages = [];
+
+  state.chatContext = { text: contextText, title, subtitle, backStep, type, emptyHint };
+  state.chatMessages = [];
+
+  if (elements.chatTitle) elements.chatTitle.textContent = title;
+  if (elements.chatSubtitle) elements.chatSubtitle.textContent = subtitle;
+
   renderChatMessages();
-  if (elements.chatInput) elements.chatInput.value = '';
-  if (elements.chatInput) elements.chatInput.disabled = false;
+  if (elements.chatInput) {
+    elements.chatInput.value = '';
+    elements.chatInput.disabled = false;
+  }
   if (elements.btnSendChat) elements.btnSendChat.disabled = false;
-  showStep('audio-chat');
+  showStep('chat');
   elements.chatInput?.focus();
 }
 
@@ -1638,16 +1664,16 @@ function renderChatMessages() {
   if (!elements.chatMessages) return;
   elements.chatMessages.innerHTML = '';
 
-  if (state.audioChatMessages.length === 0) {
+  if (state.chatMessages.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'chat-empty';
-    empty.textContent = 'Faça sua primeira pergunta sobre o áudio.';
+    empty.textContent = state.chatContext?.emptyHint || 'Faça sua primeira pergunta.';
     empty.style.cssText = 'color: var(--text-muted); font-size: 0.9rem; text-align: center; padding: var(--spacing-lg);';
     elements.chatMessages.appendChild(empty);
     return;
   }
 
-  state.audioChatMessages.forEach((msg) => {
+  state.chatMessages.forEach((msg) => {
     if (msg.role === 'system') return;
 
     const div = document.createElement('div');
@@ -1682,7 +1708,7 @@ function renderChatMessages() {
 
 async function sendChatMessage() {
   const input = elements.chatInput;
-  if (!input || !state.audioResult?.transcription) return;
+  if (!input || !state.chatContext?.text) return;
   const text = input.value.trim();
   if (!text) return;
 
@@ -1692,7 +1718,7 @@ async function sendChatMessage() {
   }
 
   const userMessage = { role: 'user', content: text };
-  state.audioChatMessages.push(userMessage);
+  state.chatMessages.push(userMessage);
   input.value = '';
   input.disabled = true;
   elements.btnSendChat.disabled = true;
@@ -1701,7 +1727,7 @@ async function sendChatMessage() {
   elements.chatTyping.hidden = false;
   elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
 
-  const messagesForApi = state.audioChatMessages
+  const messagesForApi = state.chatMessages
     .filter(m => m.role !== 'system')
     .map(m => ({ role: m.role, content: m.content }));
 
@@ -1713,7 +1739,7 @@ async function sendChatMessage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        transcription: state.audioResult.transcription,
+        transcription: state.chatContext.text,
         messages: messagesForApi,
       }),
       signal: controller.signal,
@@ -1727,7 +1753,7 @@ async function sendChatMessage() {
       const waitSeconds = parseWaitTime(errorMsg);
       const limitType = detectLimitType(errorMsg);
       startRateLimitCountdown(waitSeconds + 2, limitType);
-      state.audioChatMessages.pop();
+      state.chatMessages.pop();
       renderChatMessages();
       showToast('Limite de API atingido. Aguarde e tente novamente.', 'error');
       return;
@@ -1740,7 +1766,7 @@ async function sendChatMessage() {
 
     const data = await res.json();
     const assistantMessage = { role: 'assistant', content: data.content || '' };
-    state.audioChatMessages.push(assistantMessage);
+    state.chatMessages.push(assistantMessage);
     renderChatMessages();
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -1748,7 +1774,7 @@ async function sendChatMessage() {
     } else {
       showToast(err.message || 'Erro ao enviar', 'error');
     }
-    state.audioChatMessages.pop();
+    state.chatMessages.pop();
     renderChatMessages();
   } finally {
     elements.chatTyping.hidden = true;
@@ -1977,10 +2003,50 @@ elements.btnResummarize?.addEventListener('click', () => {
   showStep('audio-choice');
 });
 
-// Audio Chat
-elements.btnChatAudio?.addEventListener('click', openAudioChat);
-elements.btnBackFromChat?.addEventListener('click', () => showStep('audio-result'));
-elements.btnBackToAudioResult?.addEventListener('click', () => showStep('audio-result'));
+// Chat — open from different contexts
+elements.btnChatAudio?.addEventListener('click', () => {
+  openChat(state.audioResult?.transcription, {
+    title: '💬 Conversar sobre o áudio',
+    subtitle: 'Pergunte qualquer coisa sobre o que foi dito',
+    backStep: 'audio-result',
+    type: 'audio',
+    emptyHint: 'Faça sua primeira pergunta sobre o áudio.',
+  });
+});
+
+elements.btnChatSummary?.addEventListener('click', () => {
+  const summaryText = elements.summaryText?.innerText || '';
+  const messages = state.messagesByDate[state.selectedDate] || [];
+  const rawText = messages.map(m => `[${m.time}] ${m.sender}: ${m.content}`).join('\n');
+  // Use raw messages as context if small enough, otherwise use summary
+  const contextText = rawText.length < 80000 ? rawText : summaryText;
+  openChat(contextText, {
+    title: '💬 Conversar sobre o resumo',
+    subtitle: 'Pergunte sobre as mensagens do dia',
+    backStep: 'result',
+    type: 'summary',
+    emptyHint: 'Pergunte algo sobre as mensagens desse dia.',
+  });
+});
+
+elements.btnChatAnalysis?.addEventListener('click', () => {
+  const analysisText = elements.analysisText?.innerText || '';
+  openChat(analysisText, {
+    title: '💬 Conversar sobre a análise',
+    subtitle: 'Pergunte sobre o perfil do grupo',
+    backStep: 'group-result',
+    type: 'analysis',
+    emptyHint: 'Pergunte algo sobre a análise do grupo.',
+  });
+});
+
+elements.btnBackFromChat?.addEventListener('click', () => {
+  showStep(state.chatContext?.backStep || 'upload');
+});
+elements.btnBackFromChatLink?.addEventListener('click', () => {
+  showStep(state.chatContext?.backStep || 'upload');
+});
+
 elements.btnSendChat?.addEventListener('click', sendChatMessage);
 
 elements.chatInput?.addEventListener('keydown', (e) => {
@@ -1991,7 +2057,7 @@ elements.chatInput?.addEventListener('keydown', (e) => {
 });
 
 elements.btnCopyChat?.addEventListener('click', async () => {
-  const text = state.audioChatMessages
+  const text = state.chatMessages
     .filter(m => m.role !== 'system')
     .map(m => `${m.role === 'user' ? 'Você' : 'Assistente'}: ${m.content}`)
     .join('\n\n');
