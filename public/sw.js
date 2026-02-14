@@ -1,4 +1,4 @@
-const CACHE_NAME = 'resumo-grupo-v3';
+const CACHE_NAME = 'resumo-grupo-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

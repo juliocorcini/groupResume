@@ -1102,7 +1102,7 @@ function displayGroupResult(analysis, vibeScore, stats) {
   
   // Analysis text
   if (elements.analysisText) {
-    elements.analysisText.innerHTML = analysis
+    elements.analysisText.innerHTML = (analysis || '')
       .replace(/##\s*(.+)/g, '<h2>$1</h2>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\n\n/g, '</p><p>')
@@ -1340,7 +1340,7 @@ function updateProgressUI(current, total, text) {
 function displayResult(summary, stats) {
   hideLoading();
   
-  elements.summaryText.innerHTML = summary
+  elements.summaryText.innerHTML = (summary || '')
     .replace(/##\s*(.+)/g, '<h2>$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n\n/g, '</p><p>')
@@ -2038,7 +2038,11 @@ elements.btnNewAudio?.addEventListener('click', () => {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js')
-    .then(reg => console.log('SW registered, scope:', reg.scope))
+    .then(reg => {
+      console.log('SW registered, scope:', reg.scope);
+      // Force update check — ensures user gets latest cached assets
+      reg.update().catch(() => {});
+    })
     .catch(err => console.error('SW registration failed:', err));
 }
 
