@@ -296,6 +296,7 @@ const elements = {
   stepResult: $('step-result'),
   stepGroupAnalysis: $('step-group-analysis'),
   stepGroupResult: $('step-group-result'),
+  stepAudioResult: $('step-audio-result'),
   uploadArea: $('upload-area'),
   fileInput: $('file-input'),
   datesInfo: $('dates-info'),
@@ -341,7 +342,15 @@ const elements = {
   vibeScore: $('vibe-score'),
   btnCopyAnalysis: $('btn-copy-analysis'),
   btnShareAnalysis: $('btn-share-analysis'),
-  btnNewAnalysis: $('btn-new-analysis')
+  btnNewAnalysis: $('btn-new-analysis'),
+  // Audio elements
+  audioSummary: $('audio-summary'),
+  audioTranscription: $('audio-transcription'),
+  audioStats: $('audio-stats'),
+  btnCopyAudio: $('btn-copy-audio'),
+  btnCopyTranscription: $('btn-copy-transcription'),
+  btnShareAudio: $('btn-share-audio'),
+  btnNewAudio: $('btn-new-audio')
 };
 
 // ==============================================
@@ -349,7 +358,7 @@ const elements = {
 // ==============================================
 
 function showStep(name) {
-  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result'].forEach(s => {
+  ['upload', 'dates', 'options', 'result', 'group-analysis', 'group-result', 'audio-result'].forEach(s => {
     $(`step-${s}`)?.classList.toggle('active', s === name);
   });
 }
@@ -1404,14 +1413,119 @@ async function extractTxtFromZip(zipFile) {
   }
 }
 
+// ==============================================
+// Audio Transcription
+// ==============================================
+
+const AUDIO_EXTENSIONS = ['.opus', '.ogg', '.mp3', '.m4a', '.wav', '.webm'];
+const MAX_AUDIO_SIZE = 25 * 1024 * 1024; // 25 MB
+
+function isAudioFile(file) {
+  if (file.type && file.type.startsWith('audio/')) return true;
+  return AUDIO_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext));
+}
+
+async function handleAudioFile(file) {
+  if (!file) return;
+
+  if (file.size > MAX_AUDIO_SIZE) {
+    showToast('Áudio muito grande. Máximo 25 MB.', 'error');
+    return;
+  }
+
+  try {
+    showLoading('Transcrevendo áudio...');
+
+    const formData = new FormData();
+    formData.append('audio', file);
+
+    const response = await fetch('/api/transcribe', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (response.status === 429) {
+      const data = await response.json();
+      const errorMsg = data.error || 'Rate limit reached';
+      const waitSeconds = parseWaitTime(errorMsg);
+      const limitType = detectLimitType(errorMsg);
+      startRateLimitCountdown(waitSeconds + 2, limitType);
+      hideLoading();
+      showToast('Limite de API atingido. Aguarde e tente novamente.', 'error');
+      return;
+    }
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Erro ao processar áudio');
+    }
+
+    const result = await response.json();
+    hideLoading();
+    displayAudioResult(result);
+    showStep('audio-result');
+  } catch (err) {
+    hideLoading();
+    showToast(err.message, 'error');
+  }
+}
+
+function displayAudioResult(result) {
+  const { transcription, summary, stats } = result;
+
+  // Summary (render basic markdown)
+  if (elements.audioSummary) {
+    elements.audioSummary.innerHTML = summary
+      .replace(/##\s*(.+)/g, '<h2>$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/^/, '<p>').replace(/$/, '</p>');
+  }
+
+  // Transcription
+  if (elements.audioTranscription) {
+    elements.audioTranscription.textContent = transcription;
+  }
+
+  // Stats
+  if (elements.audioStats) {
+    const parts = [];
+    if (stats.audioDuration) {
+      const min = Math.floor(stats.audioDuration / 60);
+      const sec = stats.audioDuration % 60;
+      parts.push(`${min}:${String(sec).padStart(2, '0')} de áudio`);
+    }
+    parts.push(`${stats.wordCount} palavras`);
+    parts.push(`processado em ${(stats.totalTimeMs / 1000).toFixed(1)}s`);
+    if (stats.fileSizeMB) {
+      parts.push(`${stats.fileSizeMB.toFixed(1)} MB`);
+    }
+    elements.audioStats.textContent = parts.join(' · ');
+  }
+
+  // Show share button if available
+  if (elements.btnShareAudio) {
+    elements.btnShareAudio.hidden = !navigator.share;
+  }
+}
+
+// ==============================================
+// File Upload
+// ==============================================
+
 async function handleFile(file) {
   if (!file) return;
+
+  // Route audio files to the audio handler
+  if (isAudioFile(file)) {
+    return handleAudioFile(file);
+  }
   
   const isZip = file.name.endsWith('.zip') || file.type === 'application/zip';
   const isTxt = file.name.endsWith('.txt') || file.type === 'text/plain';
   
   if (!isZip && !isTxt) {
-    showToast('Selecione um arquivo .txt ou .zip do WhatsApp', 'error');
+    showToast('Formato não suportado. Use .txt, .zip ou áudio.', 'error');
     return;
   }
   
@@ -1596,6 +1710,35 @@ elements.btnNewAnalysis?.addEventListener('click', () => {
   showStep('dates');
 });
 
+// Audio Result Event Listeners
+elements.btnCopyAudio?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(elements.audioSummary.innerText);
+    showToast('Resumo copiado!', 'success');
+  } catch { showToast('Erro ao copiar', 'error'); }
+});
+
+elements.btnCopyTranscription?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(elements.audioTranscription.innerText);
+    showToast('Transcrição copiada!', 'success');
+  } catch { showToast('Erro ao copiar', 'error'); }
+});
+
+elements.btnShareAudio?.addEventListener('click', async () => {
+  try {
+    await navigator.share({
+      title: 'Resumo do Áudio',
+      text: elements.audioSummary.innerText
+    });
+  } catch {}
+});
+
+elements.btnNewAudio?.addEventListener('click', () => {
+  elements.fileInput.value = '';
+  showStep('upload');
+});
+
 // ==============================================
 // Initialize
 // ==============================================
@@ -1609,7 +1752,38 @@ if ('serviceWorker' in navigator) {
   if (isRateLimitActive()) {
     console.log('Rate limit active from previous session');
   }
-  
+
+  // Handle Share Target (files shared from Android share sheet)
+  // Uses individual file caching pattern (web.dev official approach)
+  if (location.search.includes('share-target')) {
+    try {
+      const cache = await caches.open('share-target-cache');
+      const fileResp = await cache.match('/shared-file');
+      const metaResp = await cache.match('/shared-meta');
+
+      if (fileResp && metaResp) {
+        const blob = await fileResp.blob();
+        const meta = JSON.parse(await metaResp.text());
+
+        // Clean cache immediately
+        await cache.delete('/shared-file');
+        await cache.delete('/shared-meta');
+
+        // Reconstruct File with original name and type
+        const file = new File([blob], meta.name, { type: meta.type });
+
+        // handleFile auto-routes to audio or text handler
+        await handleFile(file);
+      }
+    } catch (err) {
+      console.error('Error handling share target:', err);
+    }
+    // Clean URL regardless of success/failure
+    history.replaceState(null, '', '/');
+    return;
+  }
+
+  // Legacy: handle sessionStorage share (fallback for when SW is not active)
   const content = sessionStorage.getItem('sharedFileContent');
   const name = sessionStorage.getItem('sharedFileName');
   if (content && name) {

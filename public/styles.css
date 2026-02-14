@@ -1458,3 +1458,75 @@ a:hover {
   border-radius: 4px;
 }
 
+/* ==============================================
+   Audio Result
+   ============================================== */
+
+.transcription-details {
+  margin-top: var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.transcription-details summary {
+  padding: var(--spacing-md);
+  cursor: pointer;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 500;
+  user-select: none;
+  transition: background var(--transition-fast);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.transcription-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.transcription-details summary::after {
+  content: '▸';
+  margin-left: auto;
+  transition: transform var(--transition-fast);
+}
+
+.transcription-details[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.transcription-details summary:hover {
+  background: var(--bg-hover);
+}
+
+.transcription-details[open] summary {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.transcription-text {
+  padding: var(--spacing-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.transcription-text::-webkit-scrollbar {
+  width: 6px;
+}
+
+.transcription-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transcription-text::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+

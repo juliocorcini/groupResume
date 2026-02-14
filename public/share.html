@@ -40,81 +40,18 @@
 
   <script>
     /**
-     * Handle files received via Web Share Target API
+     * Fallback Share Target handler.
      * 
-     * When the PWA receives a shared file, the browser sends a POST request
-     * to this page with the file data as multipart/form-data.
+     * When the Service Worker is active, it intercepts the POST to /share,
+     * caches the file, and redirects to /?share-target. This page is never reached.
+     * 
+     * This page only loads when:
+     * 1. The SW is not yet active (first install)
+     * 2. The SW failed to intercept the request
+     * 
+     * In those cases, we redirect to the main app.
      */
-    async function handleSharedFile() {
-      try {
-        // Get the file from the form data that was posted
-        const formData = await getFormData();
-        
-        if (!formData) {
-          // No form data means user navigated here directly
-          window.location.href = '/';
-          return;
-        }
-
-        const file = formData.get('file');
-        
-        if (!file || !(file instanceof File)) {
-          throw new Error('No file received');
-        }
-
-        // Read file content
-        const content = await file.text();
-        
-        // Store in sessionStorage for the main app to pick up
-        sessionStorage.setItem('sharedFileContent', content);
-        sessionStorage.setItem('sharedFileName', file.name);
-        
-        // Redirect to main app
-        window.location.href = '/?shared=true';
-        
-      } catch (error) {
-        console.error('Error handling shared file:', error);
-        alert('Erro ao processar arquivo. Por favor, tente novamente.');
-        window.location.href = '/';
-      }
-    }
-
-    async function getFormData() {
-      // Try to get form data from the page load
-      // This is set by the service worker or browser when handling share target
-      
-      // Check if we're a POST request with form data
-      if (window.location.search.includes('shared')) {
-        return null;
-      }
-
-      // Try to read from the service worker cache
-      const cache = await caches.open('share-target-cache');
-      const response = await cache.match('/share-target-data');
-      
-      if (response) {
-        await cache.delete('/share-target-data');
-        return await response.formData();
-      }
-
-      return null;
-    }
-
-    // Alternative: Handle via service worker message
-    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-      navigator.serviceWorker.addEventListener('message', async (event) => {
-        if (event.data && event.data.type === 'SHARE_TARGET_FILE') {
-          const { file } = event.data;
-          sessionStorage.setItem('sharedFileContent', file.content);
-          sessionStorage.setItem('sharedFileName', file.name);
-          window.location.href = '/?shared=true';
-        }
-      });
-    }
-
-    // Run on page load
-    handleSharedFile();
+    window.location.href = '/';
   </script>
 </body>
 </html>
-

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#6366f1">
-  <meta name="description" content="Resuma conversas de grupos do WhatsApp usando IA. Faça upload do arquivo exportado e receba um resumo inteligente.">
+  <meta name="description" content="Resuma conversas e áudios do WhatsApp usando IA. Faça upload do arquivo exportado ou compartilhe um áudio para receber um resumo inteligente.">
   
   <title>Resumo de Grupo WhatsApp</title>
   
@@ -25,7 +25,7 @@
     <!-- Header -->
     <header class="header">
       <h1>💬 Resumo de Grupo</h1>
-      <p class="subtitle">Transforme centenas de mensagens em um resumo claro</p>
+      <p class="subtitle">Resuma conversas e áudios do WhatsApp com IA</p>
     </header>
 
     <!-- Main Content -->
@@ -36,8 +36,8 @@
           <div class="upload-icon">📄</div>
           <h2>Arraste o arquivo aqui</h2>
           <p>ou clique para selecionar</p>
-          <p class="upload-hint">Arquivo .txt ou .zip exportado do WhatsApp</p>
-          <input type="file" id="file-input" accept=".txt,.zip,text/plain,application/zip" hidden>
+          <p class="upload-hint">Arquivo .txt/.zip do WhatsApp ou áudio (.opus, .ogg, .mp3)</p>
+          <input type="file" id="file-input" accept=".txt,.zip,text/plain,application/zip,audio/*,.opus,.ogg,.mp3,.m4a,.wav,.webm" hidden>
         </div>
         
         <div class="how-to">
@@ -326,6 +326,30 @@
           <button id="btn-copy" class="btn-secondary">📋 Copiar</button>
           <button id="btn-share" class="btn-secondary" hidden>📤 Compartilhar</button>
           <button id="btn-new-date" class="btn-primary">Nova Data</button>
+        </div>
+      </section>
+
+      <!-- Step: Audio Result -->
+      <section id="step-audio-result" class="step">
+        <div class="result-header">
+          <h2>🎤 Resumo do Áudio</h2>
+          <p class="result-stats" id="audio-stats"></p>
+        </div>
+
+        <div class="result-content">
+          <div id="audio-summary" class="summary-text"></div>
+        </div>
+
+        <details class="transcription-details">
+          <summary>📝 Ver transcrição completa</summary>
+          <div id="audio-transcription" class="transcription-text"></div>
+        </details>
+
+        <div class="result-actions">
+          <button id="btn-copy-audio" class="btn-secondary">📋 Copiar resumo</button>
+          <button id="btn-copy-transcription" class="btn-secondary">📝 Copiar transcrição</button>
+          <button id="btn-share-audio" class="btn-secondary" hidden>📤 Compartilhar</button>
+          <button id="btn-new-audio" class="btn-primary">← Novo arquivo</button>
         </div>
       </section>
 
