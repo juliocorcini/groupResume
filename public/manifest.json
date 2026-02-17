@@ -49,10 +49,12 @@
           "name": "file",
           "accept": [
             "text/*", "text/plain",
+            "application/zip", "application/x-zip-compressed", "application/x-zip",
             "audio/*", "audio/ogg", "audio/opus", "audio/mpeg", "audio/mp4",
             "audio/wav", "audio/webm", "audio/x-m4a", "audio/aac",
             "application/ogg", "application/octet-stream",
-            ".txt", ".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm"
+            ".txt", ".zip",
+            ".opus", ".ogg", ".mp3", ".m4a", ".wav", ".webm"
           ]
         }
       ]
